@@ -1,327 +1,265 @@
-import pandas as pd
+import re
+from dataclasses import dataclass
+from typing import List, Optional, Union, Dict, Set, Any
+
 import numpy as np
-from sklearn.preprocessing import StandardScaler, LabelEncoder
-from transformers import AutoTokenizer
+import pandas as pd
+from pandas import DataFrame, Series
+from sklearn.preprocessing import StandardScaler, QuantileTransformer, LabelEncoder
+from skrub import DatetimeEncoder
 
-class TabStarPreprocessor:
+# --- Constants from TabSTAR ---
+MISSING_VALUE = "Unknown Value"
+VERBALIZED_QUANTILE_BINS = 10
+Z_MAX_ABS_VAL = 3
+
+@dataclass
+class TabSTARData:
+    """Container for processed tabular data."""
+    d_output: int
+    x_txt: np.ndarray  # Verbalized features
+    x_num: np.ndarray  # Normalized numerical values
+    y: Optional[Series] = None
+
+    def __len__(self) -> int:
+        return len(self.x_txt)
+
+class TabSTARPreprocessor:
     """
-    Préparateur de données éducatif pour nanoTabSTAR.
+    Autonomous Preprocessor that replicates TabSTAR's logic.
     
-    Ce module condense la logique de preprocessing du papier TabSTAR original :
-    1. Nettoyage des noms de colonnes (Text Cleaning)
-    2. Expansion des dates (Date Expansion)
-    3. Verbalisation des numériques avec information de Quantile (Feature Verbalization)
-    4. Standardisation des numériques pour le MLP (Z-Score + Clipping)
-    5. Création des tokens "Target-Aware" (Conscience de la cible)
+    This class handles:
+    1. Column name normalization.
+    2. Date expansion (Year, Month, Day, Weekday, etc.).
+    3. Feature type detection (Numerical vs Textual).
+    4. Numerical scaling (Z-score clipped at 3).
+    5. Semantic verbalization (Quantile-based descriptions for numbers).
+    6. Target-aware token generation.
     """
 
-    def __init__(self, model_name='intfloat/e5-small-v2', max_token_len=32, n_quantiles=10):
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.max_token_len = max_token_len
-        self.n_quantiles = n_quantiles
+    def __init__(self, is_cls: bool, verbose: bool = False):
+        self.is_cls = is_cls
+        self.verbose = verbose
+        self.date_transformers: Dict[str, DatetimeEncoder] = {}
+        self.numerical_transformers: Dict[str, StandardScaler] = {}
+        self.semantic_transformers: Dict[str, QuantileTransformer] = {}
+        self.target_transformer: Optional[Union[LabelEncoder, StandardScaler]] = None
+        self.d_output: Optional[int] = None
+        self.y_name: Optional[str] = None
+        self.y_values: Optional[List[str]] = None
+        self.constant_columns: List[str] = []
+
+    def vprint(self, msg):
+        if self.verbose:
+            print(msg)
+
+    # --- 1. Fitting Logic ---
+
+    def fit(self, X: DataFrame, y: Series):
+        """Fits all transformers to the training data."""
+        x = X.copy()
+        y = y.copy()
         
-        # Stockage des scalers et métadonnées
-        self.num_scaler = None
-        self.label_encoder = None
-        self.numerical_cols = []
-        self.text_cols = []
-        self.target_name = None
-        self.quantile_boundaries = {} # Stocke les bins pour chaque col numérique
+        # Basic cleaning
+        x, y = self._densify_objects(x, y)
+        
+        # Date expansion
+        self.date_transformers = self._fit_date_encoders(x)
+        self.vprint(f"Detected {len(self.date_transformers)} date features.")
+        x = self._transform_date_features(x, self.date_transformers)
+        
+        # Normalize names
+        x, y = self._replace_column_names(x, y)
+        
+        # Detect types
+        numerical_features = self._detect_numerical_features(x)
+        self.vprint(f"Detected {len(numerical_features)} numerical features.")
+        
+        # Transform types
+        x = self._transform_feature_types(x, numerical_features)
+        
+        # Target fitting
+        self.target_transformer = self._fit_preprocess_y(y, self.is_cls)
+        self.d_output = len(self.target_transformer.classes_) if self.is_cls else 1
+        self.y_name = str(y.name)
+        if self.is_cls:
+            self.y_values = sorted(self.target_transformer.classes_)
+            
+        # Numerical transformers
+        self.constant_columns = [col for col in x.columns if x[col].nunique() == 1]
+        for col in numerical_features:
+            if col in self.constant_columns:
+                continue
+            self.numerical_transformers[col] = self._fit_standard_scaler(x[col])
+            self.semantic_transformers[col] = self._fit_numerical_bins(x[col])
 
-    # ------------------------------------------------------------------
-    # Pipeline utilisé par create_dump/build_h5_corpus (classification ou régression)
-    # ------------------------------------------------------------------
-    def process_dataset(self, df: pd.DataFrame, target_col: str, task_type: str = 'classification'):
-        """Pipeline simple (verbalisation + num standardisé + tokens target-aware).
+    # --- 2. Transformation Logic ---
 
-        - Densifie les colonnes sparse (OpenML en fournit parfois) pour éviter l'erreur
-          pandas "cannot perform std with type Sparse".
-        - Standardise les numériques (z-score, clip).
-        - Verbalise chaque feature.
-        - Tokenise features et cibles.
-        """
-        df = df.copy()
-        df = self._clean_column_names(df)
-        df = self._densify_sparse(df)
-
-        features = [c for c in df.columns if c != target_col]
-
-        # 1) Numériques
-        num_df = df[features].select_dtypes(include=[np.number])
-        verbalized_nums = pd.DataFrame(index=df.index)
-        if not num_df.empty:
-            means, stds = num_df.mean(), num_df.std()
-            stds = stds.replace(0, 1e-6)
-            z_scores = (num_df - means) / (stds + 1e-6)
-            z_scores = z_scores.clip(-3, 3)
-            processed_nums = z_scores.copy()
-            for col in num_df.columns:
-                q_str = self._get_quantile_str(num_df[col])
-                verbalized_nums[col] = f"{col}: " + num_df[col].astype(str) + q_str
-        else:
-            processed_nums = pd.DataFrame(index=df.index)
-            verbalized_nums = pd.DataFrame(index=df.index)
-
-        # 2) Catégorielles / texte
-        cat_df = df[features].select_dtypes(exclude=[np.number])
-        verbalized_cats = pd.DataFrame(index=df.index)
-        for col in cat_df.columns:
-            verbalized_cats[col] = f"{col}: " + df[col].astype(str)
-            processed_nums[col] = 0.0
-
-        all_cols = list(verbalized_nums.columns) + list(verbalized_cats.columns)
-        final_num_values = processed_nums[all_cols].fillna(0.0).values.astype(np.float32) if all_cols else np.zeros((len(df), 0), dtype=np.float32)
-        feature_texts = pd.concat([verbalized_nums, verbalized_cats], axis=1)[all_cols].values if all_cols else np.empty((len(df), 0))
-
-        # 3) Labels & target-aware tokens
-        if task_type == 'regression':
-            labels = df[target_col].astype(float).fillna(0).values
-            target_strings = [f"Target {target_col}: value"]
-        else:
-            unique_classes = sorted(df[target_col].astype(str).unique())
-            class_to_idx = {c: i for i, c in enumerate(unique_classes)}
-            labels = df[target_col].astype(str).map(class_to_idx).values
-            target_strings = [f"Target {target_col}: {c}" for c in unique_classes]
-
-        flat_feature_texts = feature_texts.flatten().astype(str)
-        if len(flat_feature_texts) == 0:
-            feat_input_ids = np.zeros((len(df), 0, self.max_token_len), dtype=np.int64)
-        else:
-            feat_enc = self.tokenizer(
-                flat_feature_texts.tolist(),
-                padding='max_length',
-                truncation=True,
-                max_length=self.max_token_len,
-                return_tensors='np'
-            )
-            n_samples, n_feats = feature_texts.shape
-            feat_input_ids = feat_enc['input_ids'].reshape(n_samples, n_feats, self.max_token_len)
-
-        target_enc = self.tokenizer(
-            target_strings,
-            padding='max_length',
-            truncation=True,
-            max_length=self.max_token_len,
-            return_tensors='np'
+    def transform(self, x: DataFrame, y: Optional[Series] = None) -> TabSTARData:
+        """Transforms data into verbalized text and normalized numbers."""
+        x = x.copy()
+        if y is not None:
+            y = y.copy()
+            
+        x, y = self._densify_objects(x, y)
+        x = self._transform_date_features(x, self.date_transformers)
+        x, y = self._replace_column_names(x, y)
+        
+        num_cols = sorted(self.numerical_transformers)
+        x = self._transform_feature_types(x, set(num_cols))
+        
+        # Target transformation
+        y_processed = self._transform_target(y)
+        
+        # Verbalization
+        x = self._verbalize_textual_features(x)
+        x = x.drop(columns=self.constant_columns, errors='ignore')
+        
+        # Prepend target tokens (Target-Awareness)
+        x = self._prepend_target_tokens(x, self.y_name, self.y_values)
+        
+        text_cols = [col for col in x.columns if col not in num_cols]
+        x_txt_df = x[text_cols + num_cols].copy()
+        x_num = np.zeros(shape=x.shape, dtype=np.float32)
+        
+        for col in num_cols:
+            # Semantic verbalization (e.g., "10 to 20 (Quantile 10-20%)")
+            x_txt_df[col] = self._transform_numerical_bins(x[col], self.semantic_transformers[col])
+            
+            # Numerical scaling (Z-score)
+            idx = x_txt_df.columns.get_loc(col)
+            s_num = self._transform_clipped_z_scores(x[col], self.numerical_transformers[col])
+            x_num[:, idx] = s_num.to_numpy()
+            
+        return TabSTARData(
+            d_output=self.d_output,
+            x_txt=x_txt_df.to_numpy(),
+            x_num=x_num,
+            y=y_processed
         )
 
-        return {
-            "feature_input_ids": feat_input_ids.astype(np.int64),
-            "feature_num_values": final_num_values.astype(np.float32),
-            "target_input_ids": target_enc['input_ids'].astype(np.int64),
-            "labels": labels.astype(np.int64) if task_type != 'regression' else labels.astype(np.float32),
-            "n_classes": len(target_strings)
-        }
+    # --- Internal Helper Methods (The "Vended" Logic) ---
 
-    def _densify_sparse(self, df: pd.DataFrame) -> pd.DataFrame:
-        return df.apply(lambda s: s.sparse.to_dense() if pd.api.types.is_sparse(s) else s)
+    def _densify_objects(self, x, y):
+        for col in x.columns:
+            if hasattr(x[col].dtype, 'sparse'):
+                x[col] = x[col].sparse.to_dense()
+        if y is not None and hasattr(y.dtype, 'sparse'):
+            y = y.sparse.to_dense()
+        return x, y
 
-    def _get_quantile_str(self, series: pd.Series):
-        try:
-            labels = [f"{int(i*100/self.n_quantiles)}-{int((i+1)*100/self.n_quantiles)}%" for i in range(self.n_quantiles)]
-            bins = pd.qcut(series, q=self.n_quantiles, labels=labels, duplicates='drop')
-            return bins.astype(str).apply(lambda x: f" (Quantile {x})")
-        except ValueError:
-            return pd.Series([""] * len(series), index=series.index)
+    def _fit_date_encoders(self, x):
+        encoders = {}
+        for col in x.columns:
+            if pd.api.types.is_datetime64_any_dtype(x[col]):
+                enc = DatetimeEncoder(add_weekday=True, add_total_seconds=True)
+                enc.fit(pd.to_datetime(x[col], errors='coerce').apply(lambda dt: dt.tz_localize(None) if getattr(dt, 'tzinfo', None) else dt))
+                encoders[col] = enc
+        return encoders
 
-    def fit_transform(self, df: pd.DataFrame, target_col: str):
-        """Apprend les statistiques (fit) et transforme le dataset (transform)."""
-        print(f"--- Démarrage du Preprocessing TabSTAR sur {len(df)} lignes ---")
-        self.target_name = target_col
+    def _transform_date_features(self, x, encoders):
+        for col, enc in encoders.items():
+            s = pd.to_datetime(x[col], errors='coerce').apply(lambda dt: dt.tz_localize(None) if getattr(dt, 'tzinfo', None) else dt)
+            dt_df = enc.transform(s)
+            dt_df.index = x.index
+            x = x.drop(columns=[col]).join(dt_df)
+        return x
+
+    def _replace_column_names(self, x, y):
+        def normalize(text):
+            text = re.sub(r'[\x00-\x1F\x7F]', ' ', str(text))
+            if ' ' in text:
+                for c in ['_', '-', ".", ":"]: text = text.replace(c, ' ')
+            return text
         
-        # 1. Nettoyage initial et séparation X/y
-        df = self._clean_column_names(df)
-        y = df[self.target_name]
-        X = df.drop(columns=[self.target_name])
-        
-        # 2. Gestion des Dates (Inspiré de dates.py)
-        # On explose les dates en (Année, Mois, Jour, etc.) AVANT la détection de type
-        X = self._expand_date_features(X)
+        old2new = {c: normalize(c) for c in x.columns}
+        x = x.rename(columns=old2new)
+        if y is not None:
+            y.name = normalize(y.name)
+        return x, y
 
-        # 3. Détection des Types (Inspiré de detection.py)
-        self._detect_column_types(X)
-        print(f"Colonnes détectées -> Numériques: {len(self.numerical_cols)}, Texte/Cat: {len(self.text_cols)}")
-
-        # 4. Traitement de la Cible (Inspiré de target.py)
-        # Pour la classification, on utilise un LabelEncoder
-        self.label_encoder = LabelEncoder()
-        y_encoded = self.label_encoder.fit_transform(y.astype(str))
-        
-        # 5. Apprentissage des Statistiques Numériques (Inspiré de scaler.py et binning.py)
-        if self.numerical_cols:
-            # A. Z-Score scaler pour la partie MLP (Mean=0, Std=1)
-            self.num_scaler = StandardScaler()
-            self.num_scaler.fit(X[self.numerical_cols].fillna(0)) # Simple fillna pour le fit
-            
-            # B. Calcul des Quantiles pour la partie Texte (Verbalisation)
-            for col in self.numerical_cols:
-                # On utilise qcut pour trouver les bornes des bins
-                try:
-                    # On ne garde que les valeurs valides pour calculer les quantiles
-                    valid_values = X[col].dropna()
-                    _, bins = pd.qcut(valid_values, self.n_quantiles, retbins=True, duplicates='drop')
-                    self.quantile_boundaries[col] = bins
-                except ValueError:
-                    # Fallback si colonne constante ou trop petite
-                    self.quantile_boundaries[col] = None
-
-        # 6. Transformation effective (Application de la logique)
-        return self._transform_data(X, y_encoded)
-
-    def _transform_data(self, X: pd.DataFrame, y_encoded: np.ndarray):
-        """Applique les transformations (Verbalisation & Standardisation)."""
-        
-        # --- PARTIE A : Numérique Dense (pour MLP) ---
-        # Inspiré de scaler.py : Z-score avec clipping à +/- 3
-        if self.numerical_cols:
-            X_num = X[self.numerical_cols].fillna(X[self.numerical_cols].mean())
-            X_num_scaled = self.num_scaler.transform(X_num)
-            X_num_scaled = np.clip(X_num_scaled, -3, 3) # Clipping TabSTAR spécifique
-        else:
-            X_num_scaled = np.zeros((len(X), 0))
-
-        # --- PARTIE B : Verbalisation (pour LLM) ---
-        # C'est le cœur de TabSTAR : transformer tout en texte riche.
-        verbalized_rows = []
-        
-        # On prépare un DataFrame de textes
-        X_text = pd.DataFrame(index=X.index)
-
-        # 1. Verbalisation des Numériques (Inspiré de binning.py)
-        # Format: "NomCol: Valeur (Quantile X-Y%)"
-        for col in self.numerical_cols:
-            X_text[col] = X[col].apply(lambda val: self._verbalize_numeric(col, val))
-            
-        # 2. Verbalisation des Textes/Catégories
-        # Format: "NomCol: Valeur"
-        for col in self.text_cols:
-            X_text[col] = X[col].apply(lambda val: f"{col}: {val}" if pd.notnull(val) else f"{col}: Unknown")
-
-        # Re-ordonnancement pour aligner avec le tenseur numérique
-        # Important : L'ordre des colonnes texte doit matcher l'ordre des colonnes dense
-        all_cols = self.numerical_cols + self.text_cols
-        
-        # Padding du tenseur numérique pour les colonnes purement textuelles
-        # (Les colonnes texte ont 0.0 dans la partie MLP)
-        zeros_padding = np.zeros((len(X), len(self.text_cols)))
-        if X_num_scaled.shape[1] > 0:
-            final_num_values = np.hstack([X_num_scaled, zeros_padding])
-        else:
-            final_num_values = zeros_padding
-
-        final_text_values = X_text[all_cols].values
-
-        # --- PARTIE C : Tokenization ---
-        print("Tokenisation en cours (cela peut prendre quelques secondes)...")
-        # On aplatit tout pour tokeniser en batch (beaucoup plus rapide)
-        flat_texts = final_text_values.flatten().astype(str).tolist()
-        
-        encoded = self.tokenizer(
-            flat_texts,
-            padding='max_length',
-            truncation=True,
-            max_length=self.max_token_len,
-            return_tensors='np'
-        )
-        
-        n_samples = len(X)
-        n_features = len(all_cols)
-        
-        input_ids = encoded['input_ids'].reshape(n_samples, n_features, self.max_token_len)
-        
-        # --- PARTIE D : Target-Aware Tokens ---
-        # On prépare les strings pour chaque classe possible : "Target {col}: {classe}"
-        classes = self.label_encoder.classes_
-        target_strings = [f"Target {self.target_name}: {c}" for c in classes]
-        
-        target_encoded = self.tokenizer(
-            target_strings,
-            padding='max_length',
-            truncation=True,
-            max_length=self.max_token_len,
-            return_tensors='np'
-        )
-
-        return {
-            "feature_input_ids": input_ids.astype(np.int64),      # (N, M, L)
-            "feature_num_values": final_num_values.astype(np.float32), # (N, M)
-            "target_token_ids": target_encoded['input_ids'].astype(np.int64), # (C, L)
-            "labels": y_encoded.astype(np.int64), # (N,)
-            "n_classes": len(classes)
-        }
-
-    # ================= MÉTHODES UTILITAIRES (Détails d'implémentation) =================
-
-    def _verbalize_numeric(self, col_name, value):
-        """
-        Logique de binning textuel inspirée de binning.py.
-        Ex: 45 -> "Age: 45 (Quantile 40-50%)"
-        """
-        if pd.isna(value):
-            return f"{col_name}: Unknown Value" # Comme dans nulls.py
-        
-        bins = self.quantile_boundaries.get(col_name)
-        if bins is None:
-            return f"{col_name}: {value}"
-            
-        # Trouver dans quel bin se trouve la valeur
-        # np.digitize retourne l'index du bin (1-based)
-        bin_idx = np.digitize([value], bins)[0]
-        
-        # Calcul du pourcentage pour l'affichage (10 bins -> pas de 10%)
-        # Si bin_idx=1 (le premier), c'est 0-10%
-        pct_step = 100 // self.n_quantiles
-        lower_pct = max(0, (bin_idx - 1) * pct_step)
-        upper_pct = min(100, bin_idx * pct_step)
-        
-        return f"{col_name}: {value} (Quantile {lower_pct}-{upper_pct}%)"
-
-    def _clean_column_names(self, df):
-        """Inspiré de texts.py : Normalise les noms (enlève \n, trim espaces)."""
-        def clean(text):
-            text = str(text)
-            for c in ['\n', '\r', '\t']:
-                text = text.replace(c, ' ')
-            return text.strip()
-        
-        df.columns = [clean(c) for c in df.columns]
-        # On applique aussi au nom de la target si besoin
-        if self.target_name:
-            self.target_name = clean(self.target_name)
-        return df
-
-    def _expand_date_features(self, df):
-        """Inspiré de dates.py : Transforme datetime -> Year, Month, Day, Weekday."""
-        # On itère sur une copie pour éviter de modifier l'original pendant l'itération
-        new_df = df.copy()
-        for col in df.columns:
-            if pd.api.types.is_datetime64_any_dtype(df[col]):
-                # Extraction des composants
-                new_df[f"{col}_year"] = df[col].dt.year
-                new_df[f"{col}_month"] = df[col].dt.month
-                new_df[f"{col}_day"] = df[col].dt.day
-                new_df[f"{col}_weekday"] = df[col].dt.weekday
-                # On supprime la colonne date originale car elle n'est pas digestible telle quelle
-                new_df.drop(columns=[col], inplace=True)
-        return new_df
-
-    def _detect_column_types(self, df):
-        """
-        Inspiré de detection.py : Heuristiques simple pour séparer Numérique et Texte.
-        """
-        self.numerical_cols = []
-        self.text_cols = []
-        
-        for col in df.columns:
-            # Si c'est explicitement numérique
-            if pd.api.types.is_numeric_dtype(df[col]):
-                # Vérification supplémentaire : Est-ce un faux numérique (ex: ID categ) ?
-                # TabSTAR detection.py utilise un seuil unique (MAX_NUMERIC_FOR_CATEGORICAL=50)
-                n_unique = df[col].nunique()
-                if n_unique < 10 and n_unique < len(df) * 0.05:
-                    # Peu de valeurs uniques -> probablement catégoriel
-                    self.text_cols.append(col)
-                else:
-                    self.numerical_cols.append(col)
+    def _detect_numerical_features(self, x):
+        num_feats = set()
+        for col in x.columns:
+            s = x[col].dropna()
+            if len(s) == 0: continue
+            if pd.api.types.is_numeric_dtype(s.dtype):
+                num_feats.add(col)
             else:
-                self.text_cols.append(col)
+                # Check if mostly numeric strings
+                try:
+                    pd.to_numeric(s, errors='raise')
+                    if s.nunique() > 50: num_feats.add(col)
+                except: pass
+        return num_feats
+
+    def _transform_feature_types(self, x, num_feats):
+        for col in x.columns:
+            if col in num_feats:
+                x[col] = pd.to_numeric(x[col], errors='coerce').astype(float)
+            else:
+                x[col] = x[col].astype(str).replace('nan', MISSING_VALUE)
+        return x
+
+    def _fit_standard_scaler(self, s):
+        scaler = StandardScaler()
+        scaler.fit(s.dropna().values.reshape(-1, 1))
+        return scaler
+
+    def _transform_clipped_z_scores(self, s, scaler):
+        s_val = scaler.transform(s.fillna(s.mean()).values.reshape(-1, 1)).flatten()
+        s_val = np.clip(s_val, -Z_MAX_ABS_VAL, Z_MAX_ABS_VAL)
+        return Series(s_val, index=s.index)
+
+    def _fit_numerical_bins(self, s):
+        scaler = QuantileTransformer(n_quantiles=min(1000, len(s.dropna())), random_state=0)
+        scaler.fit(s.dropna().values.reshape(-1, 1))
+        return scaler
+
+    def _transform_numerical_bins(self, s, scaler):
+        q_levels = np.linspace(0, 1, VERBALIZED_QUANTILE_BINS + 1)
+        boundaries = scaler.inverse_transform(q_levels.reshape(-1, 1)).flatten()
+        
+        def format_f(n):
+            r = round(n, 4)
+            return str(int(r)) if r.is_integer() else f"{r:.4f}".rstrip("0").rstrip(".")
+
+        b_str = [format_f(b) for b in boundaries]
+        bins = [f"Lower than {b_str[0]} (Q 0%)"]
+        for i in range(len(b_str)-1):
+            bins.append(f"{b_str[i]} to {b_str[i+1]} (Q {i*10}-{(i+1)*10}%)")
+        bins.append(f"Higher than {b_str[-1]} (Q 100%)")
+        
+        bin_idx = np.digitize(s.fillna(np.nan), boundaries)
+        verbalized = [bins[i] if not pd.isna(s.iloc[j]) else MISSING_VALUE for j, i in enumerate(bin_idx)]
+        return [f"Predictive Feature: {s.name}\nFeature Value: {v}" for v in verbalized]
+
+    def _verbalize_textual_features(self, x):
+        for col in x.columns:
+            if x[col].dtype == object:
+                x[col] = x[col].apply(lambda v: f"Predictive Feature: {col}\nFeature Value: {v}")
+        return x
+
+    def _prepend_target_tokens(self, x, y_name, y_values):
+        if y_values:
+            tokens = [f"Target Feature: {y_name}\nFeature Value: {v}" for v in y_values]
+        else:
+            tokens = [f"Numerical Target Feature: {y_name}"]
+        
+        target_df = DataFrame({f"TARGET_TOKEN_{i}": [t] * len(x) for i, t in enumerate(tokens)}, index=x.index)
+        return pd.concat([target_df, x], axis=1)
+
+    def _fit_preprocess_y(self, y, is_cls):
+        if is_cls:
+            le = LabelEncoder()
+            le.fit(y)
+            return le
+        else:
+            return self._fit_standard_scaler(y)
+
+    def _transform_target(self, y):
+        if y is None: return None
+        if self.is_cls:
+            return Series(self.target_transformer.transform(y), index=y.index, name=y.name)
+        else:
+            return self._transform_clipped_z_scores(y, self.target_transformer)

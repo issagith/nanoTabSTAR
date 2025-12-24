@@ -1,9 +1,11 @@
 h5py
 torch
-numpy 
+numpy
 transformers
-pandas 
+pandas
 scikit-learn
 openml
 kagglehub
 tqdm
+skrub
+matplotlib
