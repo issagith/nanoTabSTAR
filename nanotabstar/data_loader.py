@@ -29,8 +29,8 @@ class TabSTARDataLoader:
         
         print(f"TabSTARDataLoader initialized with {len(self.dataset_names)} datasets.")
 
-    def _tokenize_batch(self, texts: List[str]) -> torch.Tensor:
-        """Helper to tokenize a list of strings into input_ids."""
+    def _tokenize_batch(self, texts: List[str]) -> Dict[str, torch.Tensor]:
+        """Helper to tokenize a list of strings into input_ids and attention_mask."""
         encoded = self.tokenizer(
             texts,
             padding=True,
@@ -38,7 +38,7 @@ class TabSTARDataLoader:
             max_length=self.max_length,
             return_tensors="pt"
         )
-        return encoded["input_ids"]
+        return encoded
 
     def __iter__(self):
         with h5py.File(self.h5_path, 'r') as f:
@@ -78,19 +78,24 @@ class TabSTARDataLoader:
                 # We flatten the (B, M) feature texts to tokenize them all at once
                 B, M = raw_feat_texts.shape
                 flat_texts = raw_feat_texts.flatten().tolist()
-                flat_ids = self._tokenize_batch(flat_texts)
+                encoded_features = self._tokenize_batch(flat_texts)
                 
                 # Reshape back to (B, M, L) where L is the max_length of the batch
-                L = flat_ids.shape[-1]
-                feat_ids = flat_ids.view(B, M, L)
+                L = encoded_features["input_ids"].shape[-1]
+                feat_ids = encoded_features["input_ids"].view(B, M, L)
+                feat_mask = encoded_features["attention_mask"].view(B, M, L)
                 
                 # Tokenize target texts: (C, L_target)
-                target_ids = self._tokenize_batch(target_texts.tolist())
+                encoded_targets = self._tokenize_batch(target_texts.tolist())
+                target_ids = encoded_targets["input_ids"]
+                target_mask = encoded_targets["attention_mask"]
                 
                 yield {
                     "feature_input_ids": feat_ids,
+                    "feature_attention_mask": feat_mask,
                     "feature_num_values": feat_nums,
                     "target_token_ids": target_ids,
+                    "target_attention_mask": target_mask,
                     "labels": labels,
                     "dataset_name": ds_name,
                     "task_type": grp.attrs.get('task_type', 'unknown')

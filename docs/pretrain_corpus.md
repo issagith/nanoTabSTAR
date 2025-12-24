@@ -46,4 +46,7 @@ The corpus stores **raw strings** instead of token IDs. This allows researchers 
 - Implement "on-the-fly" tokenization in the `DataLoader`.
 - Easily inspect the data being fed to the model.
 
-To use the corpus, simply iterate through the HDF5 groups and sample batches of texts and numerical values for your training loop.
+To use the corpus, simply iterate through the HDF5 groups and sample batches of texts and numerical values for your training loop. The `TabSTARDataLoader` provided in this repository handles:
+- Random sampling of datasets.
+- On-the-fly tokenization using any HuggingFace tokenizer.
+- Generation of **attention masks** required for the model's mean pooling strategy.
