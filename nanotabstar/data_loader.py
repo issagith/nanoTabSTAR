@@ -83,7 +83,8 @@ class TabSTARDataLoader:
                 batch_indices = np.sort(batch_indices) 
                 
                 # 3. Retrieve Raw Data
-                raw_feat_texts = grp['feature_texts'][batch_indices].astype(str)
+                # Use .asstr() to ensure UTF-8 decoding of variable-length strings
+                raw_feat_texts = grp['feature_texts'].asstr()[batch_indices]
                 feat_nums = torch.from_numpy(grp['feature_num_values'][batch_indices])
                 labels_raw = grp['labels'][batch_indices]
                 task_type = grp.attrs.get('task_type', 'classification')
@@ -94,7 +95,7 @@ class TabSTARDataLoader:
                     labels = torch.from_numpy(labels_raw).float()
                 
                 # target_texts: (C,)
-                target_texts = grp['target_texts'][:].astype(str)
+                target_texts = grp['target_texts'].asstr()[:]
                 
                 # 4. Tokenize on-the-fly
                 # We flatten the (B, M) feature texts to tokenize them all at once
