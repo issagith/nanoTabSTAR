@@ -28,10 +28,11 @@ For the **Target** (the value to predict), we use a special representation:
 
 ## 3. Architecture Components
 
-### A. Text Encoder (Semantic)
-We use `intfloat/e5-small-v2` as the backbone. 
+### A. Textual Encoder
+We use `intfloat/e5-small-v2` as the backbone, wrapped in a dedicated `TextualEncoder` class.
 - **Input**: Tokenized strings for each feature and the target.
 - **Pooling**: Since a feature description can be multiple tokens, we apply **Mean Pooling** (using attention masks) to obtain a single vector $e_i \in \mathbb{R}^{384}$ for each feature.
+- **Flexibility**: The class includes `freeze()`, `unfreeze()`, and `unfreeze_last_k_layers(k)` methods. This allows for efficient fine-tuning by only training the top layers of the language model while keeping the lower semantic layers fixed.
 
 ### B. Numerical Components
 The numerical processing is split into two distinct parts:
@@ -44,10 +45,11 @@ The numerical processing is split into two distinct parts:
 2. They are passed through the fusion Transformer.
 3. The output is averaged to produce a single **fused embedding** $f_i$ that contains both "what the feature is" and "what its value is".
 
-### C. Interaction Encoder (Global)
-Once we have fused embeddings $\{f_1, f_2, ..., f_M, f_{target}\}$, they are passed as a sequence into a **6-layer Transformer Encoder**.
-- This stage allows the model to learn complex interactions (e.g., how "Age" interacts with "Income").
-- The target embedding $f_{target}$ attends to all feature embeddings to gather the necessary information for prediction.
+### C. Interaction Encoder
+Once we have fused embeddings $\{f_1, f_2, ..., f_M, f_{target}\}$, they are passed as a sequence into the `InteractionEncoder`.
+- **Architecture**: A **6-layer Transformer Encoder**.
+- **Role**: This stage allows the model to learn complex interactions (e.g., how "Age" interacts with "Income").
+- **Target Contextualization**: The target embedding $f_{target}$ attends to all feature embeddings to gather the necessary information for prediction.
 
 ### D. Prediction Heads
 The model maintains two shared heads (MLPs):
