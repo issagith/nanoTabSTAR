@@ -3,21 +3,30 @@ import torch.nn as nn
 from transformers import AutoModel
 from typing import Optional
 
-class NumericalFusion(nn.Module):
+class NumericalEncoder(nn.Module):
     """
-    Fuses textual embeddings with numerical values using a small Transformer block.
-    As described in the TabSTAR paper, each feature has both a semantic description 
-    and a numerical magnitude.
+    Projects a single scalar value into a dense vector space.
     """
     def __init__(self, d_model: int = 384):
         super().__init__()
-        # Embeds the single scalar value into the same dimension as text
-        self.scalar_embedder = nn.Sequential(
+        self.layers = nn.Sequential(
             nn.Linear(1, d_model * 2),
             nn.ReLU(),
             nn.Dropout(0.1),
             nn.Linear(d_model * 2, d_model)
         )
+
+    def forward(self, x_num: torch.Tensor) -> torch.Tensor:
+        # x_num: (Batch, Num_Features) or (Batch, Num_Classes)
+        return self.layers(x_num.unsqueeze(-1))
+
+class NumericalFusion(nn.Module):
+    """
+    Fuses textual embeddings with numerical values using a small Transformer block.
+    """
+    def __init__(self, numerical_encoder: nn.Module, d_model: int = 384):
+        super().__init__()
+        self.numerical_encoder = numerical_encoder
         # Fuses the two embeddings (text and scalar)
         self.fusion_block = nn.TransformerEncoderLayer(
             d_model=d_model,
@@ -35,7 +44,7 @@ class NumericalFusion(nn.Module):
         B, M, D = textual_embeddings.shape
         
         # 1. Embed numerical values
-        num_embeddings = self.scalar_embedder(x_num.unsqueeze(-1)) # (B, M, D)
+        num_embeddings = self.numerical_encoder(x_num) # (B, M, D)
         
         # 2. Prepare for fusion block (treat each feature as a sequence of 2 tokens)
         # Shape: (B * M, 2, D)
@@ -78,8 +87,9 @@ class TabSTARModel(nn.Module):
         # 1. Text Encoder: intfloat/e5-small-v2
         self.text_encoder = AutoModel.from_pretrained('intfloat/e5-small-v2')
         
-        # 2. Numerical Fusion: Combines text and numbers
-        self.numerical_fusion = NumericalFusion(d_model)
+        # 2. Numerical Components
+        self.numerical_encoder = NumericalEncoder(d_model)
+        self.numerical_fusion = NumericalFusion(self.numerical_encoder, d_model)
         
         # 3. Interaction Encoder: Models feature-feature interactions
         encoder_layer = nn.TransformerEncoderLayer(

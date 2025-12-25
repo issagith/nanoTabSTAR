@@ -33,11 +33,16 @@ We use `intfloat/e5-small-v2` as the backbone.
 - **Input**: Tokenized strings for each feature and the target.
 - **Pooling**: Since a feature description can be multiple tokens, we apply **Mean Pooling** (using attention masks) to obtain a single vector $e_i \in \mathbb{R}^{384}$ for each feature.
 
-### B. Numerical Fusion (The Hybrid Block)
-This is the core innovation of TabSTAR. For each feature $i$, we have a semantic vector $e_i$ and a scalar $n_i$.
-1. **Scalar Projection**: $n_i$ is projected into $\mathbb{R}^{384}$ using a 2-layer MLP.
-2. **Local Transformer**: The semantic vector and the projected scalar are treated as a sequence of 2 tokens and passed through a 1-layer Transformer block.
-3. **Fusion**: The output is averaged to produce a single **fused embedding** $f_i$ that contains both "what the feature is" and "what its value is".
+### B. Numerical Components
+The numerical processing is split into two distinct parts:
+
+1. **Numerical Encoder**: A 2-layer MLP that projects the normalized scalar $n_i$ into the dense vector space $\mathbb{R}^{384}$.
+2. **Numerical Fusion**: A 1-layer Transformer block that fuses the semantic vector $e_i$ and the numerical vector from the encoder.
+
+**Fusion Process:**
+1. The semantic vector and the projected scalar are treated as a sequence of 2 tokens.
+2. They are passed through the fusion Transformer.
+3. The output is averaged to produce a single **fused embedding** $f_i$ that contains both "what the feature is" and "what its value is".
 
 ### C. Interaction Encoder (Global)
 Once we have fused embeddings $\{f_1, f_2, ..., f_M, f_{target}\}$, they are passed as a sequence into a **6-layer Transformer Encoder**.
