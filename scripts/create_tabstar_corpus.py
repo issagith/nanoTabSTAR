@@ -13,24 +13,140 @@ if project_root not in sys.path:
 
 from nanotabstar.preparation import TabSTARPreprocessor
 
-# Simplified catalog of OpenML datasets used in TabSTAR
-DATASET_CATALOG = {
-    "BREAST_CANCER": 15,
-    "CREDIT_GERMAN": 31,
-    "ADULT_INCOME": 1590,
-    "CALIFORNIA_HOUSING": 43939,
-    "CONCRETE_STRENGTH": 4353,
+# Classification datasets (binary + multiclass)
+CLASSIF_DATASET_CATALOG = {
+    # Small/medium classics for stability and debugging
+    "BIN_HEALTHCARE_BREAST_CANCER_WISCONSIN": 15,                 # breast-w
+    "BIN_HEALTHCARE_CELLS_WDBC_WISCONSIN_BREAST_CANCER": 1510,    # wdbc
+    "BIN_FINANCIAL_CREDIT_GERMAN": 31,                            # credit-g
+    "BIN_FINANCIAL_ADULT_INCOME": 1590,                           # adult
+    "BIN_SOCIAL_TIC_TAC_TOE": 50,                                 # tic-tac-toe
+    "BIN_ANONYM_MONKS_PROBLEM_2": 334,                            # monks-problems-2
+    "BIN_ANONYM_AUSTRALIAN_CREDIT_APPROVAL": 40981,               # Australian
+    "BIN_SOCIAL_SPAM_EMAILS_SPAMBASE": 44,                        # spambase
+    "BIN_NATURE_MUSHROOM_POISONOUS": 24,                          # mushroom
+    "BIN_SOCIAL_POLITICS_US_CONGRESS_VOTES": 56,                  # vote
+    "BIN_HEALTHCARE_BLOOD_TRANSFUSION": 1464,                     # blood-transfusion-service-center
+    "BIN_HEALTHCARE_LIVER_INDIAN_ILPD": 1480,                     # ilpd
+    "MUL_HEALTHCARE_HEART_ARRHYTMIA": 5,                          # arrhythmia
+    "BIN_NATURE_OZONE_LEVEL": 1487,                               # ozone-level-8hr
+    "BIN_NATURE_DISEASED_TREES_WILT": 40983,                      # wilt
+    "BIN_ANONYM_TWONORM": 1507,                                   # twonorm
+
+    # Standard tabular classification with larger sample sizes
+    "BIN_FINANCIAL_BANK_MARKETING": 1461,                         # bank-marketing
+    "BIN_GEOGRAPHY_NOMAO_SEARCH_ENGINE": 1486,                    # nomao
+    "BIN_TRANSPORTATION_ROAD_SAFETY_GENDER": 45038,               # road-safety
+    "MUL_TRANSPORTATION_TRAFFIC_ACCIDENTS_FARS": 40672,           # fars
+    "MUL_TRANSPORTATION_TRAFFIC_VIOLATION": 42345,                # Traffic_violations
+    "BIN_TRANSPORTATION_CAR_BAD_BUY_KICK": 41162,                 # kick
+    "BIN_SOCIAL_COMPASS_TWO_YEARS_OFFEND": 45039,                 # compas-two-years
+    "BIN_SOCIAL_SPEED_DATING": 40536,                             # SpeedDating
+
+    # Textual and high-cardinality datasets (ideal for TabSTAR's verbalization)
+    "BIN_SOCIAL_POLICE_INCIDENTS_SAN_FRANCISCO": 42732,           # sf-police-incidents
+    "BIN_SOCIAL_JIGSAW_TOXICITY": 46654,                          # (toxicity)
+    "BIN_SOCIAL_HATE_SPEECH_DATASET_DYNAMICALLY_GENERATED": 46683,# Dynamically-Generated-Hate-Speech-Dataset
+    "MUL_SOCIAL_STACKOVERFLOW_POLARITY": 43160,                   # StackOverflow-polarity
+    "BIN_CONSUMER_HOTEL_REVIEW": 43721,                           # Hotel-Reviews
+    "BIN_SOCIAL_TWITTER_DISASTER": 43395,                         # Disaster-Tweets
+    "MUL_SOCIAL_OKCUPID_DATING_JOB_STEM": 42734,                  # okcupid-stem
+    "MUL_SOCIAL_DPBEDIA": 46686,                                  # DBPedia
+    "MUL_SOCIAL_HOLISTIC_BIAS": 46684,                            # HolisticBias
+    "MUL_SOCIAL_WIKIPEDIA_TALK_LABELS_ATTACKS": 46708,            # Wikipedia_Talk_Labels
+
+    # Large reference datasets for distributional diversity
+    "BIN_SCIENCE_PARTICLE_HIGGS": 42769,                          # Higgs
+    "MUL_NATURE_FOREST_COVERTYPE": 1596,                          # covertype
+    "BIN_ANONYM_PORTO_SEGURO": 42742,                             # porto-seguro
+    "BIN_ANONYM_APS_FAILURE": 41138,                              # APSFailure
+
+    # Classic multiclass problems
+    "MUL_COMPUTERS_IMAGE_LETTER_RECOGNITION": 6,                  # letter
+    "MUL_ANONYM_PENDIGITS": 32,                                   # pendigits
+    "MUL_COMPUTERS_PAGE_BLOCK_PARSING": 30,                       # page-blocks
+    "MUL_PROFESSIONAL_NURSERY_APPLICATIONS_SLOVENIA": 26,         # nursery
+    "MUL_FOOD_WINE_QUALITY_CAT": 40498,                           # wine-quality-white
+    "MUL_SPORTS_CONNECT4_GAME": 40668,                            # connect-4
+
+    # Vision-to-tabular datasets
+    "MUL_COMPUTERS_IMAGE_MNIST_FASHION": 40996,                   # Fashion-MNIST
+    "MUL_COMPUTERS_IMAGE_MNIST_DIGITS": 554,                      # mnist
+    "MUL_COMPUTERS_IMAGE_CIFAR10": 40927,                         # CIFAR_10
+    "MUL_COMPUTERS_IMAGE_MNIST_JAPANESE_KUZUSHIJI_49": 41991,     # Kuzushiji-49
 }
 
-def prepare_dataset_locally(dataset_id, name):
+# Regression datasets
+REG_DATASET_CATALOG = {
+    # Classic tabular regression
+    "REG_HOUSES_CALIFORNIA_HOUSES": 44977,                        # california_housing
+    "REG_SCIENCE_CONCRETE_COMPRESSIVE_STRENGTH": 44959,           # concrete_compressive_strength
+    "REG_SCIENCE_ENERGY_EFFICIENCY": 44960,                       # energy_efficiency
+    "REG_SCIENCE_AIRFOIL_SELF_NOISE": 44957,                      # airfoil_self_noise
+    "REG_HOUSES_BOSTON_HOUSE": 531,                               # boston
+    "REG_NATURE_ABALONE_FISH_RINGS": 42726,                       # abalone
+
+    # Robotics and tabular meta-learning
+    "REG_COMPUTERS_ROBOT_KIN8NM": 44980,                          # kin8nm
+    "REG_COMPUTERS_CPU_ACTIVITY": 44978,                          # cpu_activity
+    "REG_ANONYM_BANK_32NH": 558,                                  # bank32nh
+    "REG_COMPUTERS_PUMA_ROBOT_ARM": 44981,                        # pumadyn32nh
+    "REG_TRANSPORTATION_NAVAL_PROPULSION_PLANT": 44969,           # naval_propulsion_plant
+    "REG_COMPUTERS_YOUTUBE_VIDEO_TRANSCODING": 44974,             # video_transcoding
+
+    # Consumer behavior and pricing
+    "REG_CONSUMER_BLACK_FRIDAY": 41540,                           # black_friday
+    "REG_CONSUMER_DIAMONDS_PRICES": 42225,                        # diamonds
+    "REG_CONSUMER_MEDICAL_CHARGES": 44146,                        # medical_charges
+    "REG_CONSUMER_AVOCADO_SALES": 41210,                          # avocado-sales
+    "REG_CONSUMER_ONLINE_NEWS_POPULARITY": 46662,                 # news_popularity2
+
+    # Mobility and transportation
+    "REG_TRANSPORTATION_ZURICH_PUBLIC_TRANSPORT_DELAY": 40753,    # delays_zurich_transport
+    "REG_TRANSPORTATION_US_AIRPORT_PASSENGERS": 43479,            # USA-Airport-Dataset
+    "REG_TRANSPORTATION_NYC_TAXI_TIP": 42729,                     # NYC taxi
+    "REG_TRANSPORTATION_NYC_TAXI_TRIP_DURATION": 43584,           # NYC taxi trip duration
+    "REG_ANONYM_BUZZ_IN_SOCIAL_MEDIA_TWITTER": 4549,              # Buzzinsocialmedia_Twitter
+
+    # Environmental and physical sciences
+    "REG_SCIENCE_SUPERCONDUCTIVITY": 44964,                       # superconductivity
+    "REG_SCIENCE_SULFUR": 44145,                                  # sulfur
+    "REG_SCIENCE_WAVE_ENERGY": 44975,                             # wave_energy
+    "REG_SCIENCE_GRID_STABILITY": 44973,                          # grid_stability
+    "REG_NATURE_FOREST_FIRES": 44962,                             # forest_fires
+    "REG_NATURE_QUAKE_RICHTER": 550,                              # quake
+    "REG_NATURE_NO2_POLLUTION_NORWAY": 547,                       # no2
+    "REG_NATURE_MYANMAR_AIR_QUALITY": 43748,                      # Myanmar-Air-Quality
+    "REG_NATURE_POLLEN_LUXEMBOURG": 43648,                        # Pollen-Luxembourg-1992-2018
+
+    # Socio-economic and miscellaneous
+    "REG_SOCIAL_US_CRIME": 42730,                                 # us_crime
+    "REG_SOCIAL_OCCUPATION_MOBILITY_SOCMOB": 541,                 # socmob
+    "REG_SOCIAL_STRIKES_PER_COUNTRY": 549,                        # strikes
+    "REG_PROFESSIONAL_CPS88_WAGES": 44984,                        # cps88wages
+
+    # Financial and high-dimensional tabular data
+    "REG_ANONYM_SANTANDER_TRANSACTION_VALUE": 42572,              # Santander_transaction_value
+    "REG_ANONYM_ALLSTATE_CLAIM_SEVERITY": 42571,                  # Allstate_Claims_Severity
+    "REG_ANONYM_MERCEDES_BENZ_GREENER_MANUFACTURING": 42570,      # Mercedes_Benz_Greener_Manufacturing
+
+    # Sports analytics
+    "REG_SPORTS_BASEBALL_HITTER_SALARY": 525,                     # baseball-hitter
+    "REG_SPORTS_MONEYBALL": 41021,                                # Moneyball
+    "REG_SPORTS_NBA_2K20_PLAYERS_RATING": 43420,                  # NBA-2k20-player-dataset
+    "REG_FINANCIAL_STOCK_AEROSPACE": 223,                         # stock
+}
+
+
+def prepare_dataset_locally(dataset_id, name, is_cls=None):
     """
-    Downloads from OpenML and applies TabSTAR preprocessing using the autonomous module.
+    Downloads a dataset from OpenML and applies TabSTAR preprocessing.
     """
     print(f"  Fetching {name} (ID: {dataset_id}) from OpenML...")
     data = fetch_openml(data_id=dataset_id, as_frame=True, parser='auto')
     df = data.frame
     
-    # Robust target column detection
+    # Identify the target column based on OpenML metadata or position
     if data.target_names and len(data.target_names) > 0:
         target_col = data.target_names[0]
     elif data.target is not None:
@@ -39,16 +155,15 @@ def prepare_dataset_locally(dataset_id, name):
         elif isinstance(data.target, pd.DataFrame):
             target_col = data.target.columns[0]
         else:
-            # Fallback to last column if target is just an array
             target_col = df.columns[-1]
     else:
-        # Fallback to last column
         target_col = df.columns[-1]
     
     print(f"  Detected target column: {target_col}")
     
-    # Determine if classification or regression
-    is_cls = not pd.api.types.is_numeric_dtype(df[target_col]) or df[target_col].nunique() < 10
+    if is_cls is None:
+        # Heuristic to distinguish between classification and regression if not specified
+        is_cls = not pd.api.types.is_numeric_dtype(df[target_col]) or df[target_col].nunique() < 10
     
     preprocessor = TabSTARPreprocessor(is_cls=is_cls, verbose=True)
     preprocessor.fit(df.drop(columns=[target_col]), df[target_col])
@@ -58,54 +173,62 @@ def prepare_dataset_locally(dataset_id, name):
         'x_txt': processed_data.x_txt,
         'x_num': processed_data.x_num,
         'y': processed_data.y.values,
-        'target_texts': processed_data.x_txt[0, :processed_data.d_output], # First d_output columns are target tokens
+        'target_texts': processed_data.x_txt[0, :processed_data.d_output], # Target tokens are at the start
         'd_output': processed_data.d_output,
         'n_features': processed_data.x_num.shape[1] - processed_data.d_output
     }
 
 def create_corpus(output_path):
-    print(f"Starting autonomous corpus creation at {output_path}")
+    """
+    Iterates through catalogs to build a unified HDF5 pretraining corpus.
+    """
+    print(f"Starting corpus creation at {output_path}")
     dt = h5py.special_dtype(vlen=str)
     
+    tasks = [
+        (CLASSIF_DATASET_CATALOG, True, "Classification"),
+        (REG_DATASET_CATALOG, False, "Regression")
+    ]
+    
     with h5py.File(output_path, 'w') as f_out:
-        for name, ds_id in tqdm(DATASET_CATALOG.items(), desc="Processing datasets"):
-            try:
-                data = prepare_dataset_locally(ds_id, name)
-                
-                ds_group = f_out.create_group(name)
-                
-                # Save texts
-                n_samples, n_cols = data['x_txt'].shape
-                d_out = data['d_output']
-                
-                # Feature texts (excluding target tokens)
-                feature_texts = data['x_txt'][:, d_out:].astype(str)
-                target_texts = data['x_txt'][0, :d_out].astype(str)
-                
-                ds_feat_txt = ds_group.create_dataset('feature_texts', feature_texts.shape, dtype=dt, compression='gzip')
-                ds_feat_txt[:] = feature_texts
-                
-                ds_target_txt = ds_group.create_dataset('target_texts', target_texts.shape, dtype=dt, compression='gzip')
-                ds_target_txt[:] = target_texts
-                
-                # Save numerical and labels
-                # feature_num_values also excludes target token positions
-                feature_nums = data['x_num'][:, d_out:].astype(np.float32)
-                
-                ds_group.create_dataset('feature_num_values', data=feature_nums, compression='gzip')
-                ds_group.create_dataset('labels', data=data['y'], compression='gzip')
-                
-                # Metadata
-                ds_group.attrs['d_output'] = d_out
-                ds_group.attrs['n_features'] = data['n_features']
-                ds_group.attrs['task_type'] = 'classification' if d_out > 1 else 'regression'
-                
-                print(f"Saved {name}")
-                
-            except Exception as e:
-                print(f"Failed {name}: {e}")
-                import traceback
-                traceback.print_exc()
+        for catalog, is_cls, task_name in tasks:
+            for name, ds_id in tqdm(catalog.items(), desc=f"Processing {task_name}"):
+                try:
+                    data = prepare_dataset_locally(ds_id, name, is_cls=is_cls)
+                    
+                    ds_group = f_out.create_group(name)
+                    
+                    # Separate feature texts from target tokens
+                    n_samples, n_cols = data['x_txt'].shape
+                    d_out = data['d_output']
+                    
+                    feature_texts = data['x_txt'][:, d_out:].astype(str)
+                    target_texts = data['x_txt'][0, :d_out].astype(str)
+                    
+                    ds_feat_txt = ds_group.create_dataset('feature_texts', feature_texts.shape, dtype=dt, compression='gzip')
+                    ds_feat_txt[:] = feature_texts
+                    
+                    ds_target_txt = ds_group.create_dataset('target_texts', target_texts.shape, dtype=dt, compression='gzip')
+                    ds_target_txt[:] = target_texts
+                    
+                    # Store numerical values and labels
+                    # Numerical features are aligned with feature_texts
+                    feature_nums = data['x_num'][:, d_out:].astype(np.float32)
+                    
+                    ds_group.create_dataset('feature_num_values', data=feature_nums, compression='gzip')
+                    ds_group.create_dataset('labels', data=data['y'], compression='gzip')
+                    
+                    # Store metadata for the training loop
+                    ds_group.attrs['d_output'] = d_out
+                    ds_group.attrs['n_features'] = data['n_features']
+                    ds_group.attrs['task_type'] = 'classification' if is_cls else 'regression'
+                    
+                    print(f"Saved {name}")
+                    
+                except Exception as e:
+                    print(f"Failed {name}: {e}")
+                    import traceback
+                    traceback.print_exc()
 
 if __name__ == "__main__":
     output_file = r"c:\Users\issa\dev\TFM\nanoTabStar\data\pretrain_corpus_tabstar.h5"

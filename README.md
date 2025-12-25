@@ -95,4 +95,4 @@ for batch in loader:
 ```
 
 ## License
-This project is for educational purposes. Please refer to the original [TabSTAR](https://github.com/Supa-Star/TabSTAR) repository for the full implementation and paper.
+This project is for educational purposes. Please refer to the original [TabSTAR](https://github.com/alanarazi7/TabSTAR) repository for the full implementation and paper.
