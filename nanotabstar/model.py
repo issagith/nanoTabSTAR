@@ -30,6 +30,25 @@ class TextualEncoder(nn.Module):
         for param in self.backbone.parameters():
             param.requires_grad = True
 
+    def unfreeze_last_k_layers(self, k: int):
+        """
+        Freezes the entire backbone and then unfreezes the last k layers of the encoder.
+        """
+        # 1. Freeze everything
+        self.freeze()
+        
+        # 2. Unfreeze the last k layers
+        # For BERT-based models like E5, layers are in backbone.encoder.layer
+        if hasattr(self.backbone, 'encoder') and hasattr(self.backbone.encoder, 'layer'):
+            layers = self.backbone.encoder.layer
+            num_layers = len(layers)
+            for i in range(max(0, num_layers - k), num_layers):
+                for param in layers[i].parameters():
+                    param.requires_grad = True
+        else:
+            # Fallback if structure is different (though E5 is standard)
+            print("Warning: Could not find encoder layers to unfreeze. Check backbone structure.")
+
 class NumericalEncoder(nn.Module):
     """
     Projects a single scalar value into a dense vector space.
@@ -153,6 +172,10 @@ class TabSTARModel(nn.Module):
         """Unfreezes the textual encoder parameters."""
         self.textual_encoder.unfreeze()
 
+    def unfreeze_text_encoder_last_k(self, k: int = 6):
+        """Unfreezes the last k layers of the textual encoder."""
+        self.textual_encoder.unfreeze_last_k_layers(k)
+
     def forward(
         self, 
         feature_input_ids: torch.Tensor, 
@@ -171,7 +194,6 @@ class TabSTARModel(nn.Module):
         
         # --- Step 1: Encode Target Tokens ---
         # Targets are treated as elements with numerical value n=0
-
         target_embeddings = self.textual_encoder(input_ids=target_token_ids, attention_mask=target_attention_mask) # (C, D)
         target_embeddings = target_embeddings.unsqueeze(0).expand(B, -1, -1) # (B, C, D)
         
