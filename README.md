@@ -11,34 +11,39 @@ The goal is to cover the entire lifecycle of a Tabular Foundation Model:
 - [x] **Phase 1: Autonomous Preprocessing**: Replicate TabSTAR's verbalization and scaling logic without external dependencies.
 - [x] **Phase 2: Corpus Generation**: Create a flexible HDF5 pretrain corpus storing raw strings for on-the-fly tokenization.
 - [x] **Phase 3: Model Architecture**: Implement the hybrid Transformer + MLP architecture.
-- [ ] **Phase 4: Pretraining Loop**: Implement the multi-task pretraining strategy.
+- [x] **Phase 4: Pretraining Loop**: Implement the multi-task pretraining strategy.
 - [ ] **Phase 5: Fine-tuning & Inference**: Tools for downstream task adaptation and evaluation.
 
 ## Key Features (Current)
 
 - **Autonomous Preprocessing**: All logic for verbalization, numerical scaling, and date expansion is contained in `nanotabstar/preparation.py`.
-- **Flexible Corpus**: Generates an HDF5 pretrain corpus storing **raw strings**. This allows for on-the-fly tokenization with any model (BERT, E5, etc.).
+- **Flexible Corpus**: Generates an HDF5 pretrain corpus storing **raw strings**.
 - **Target-Aware**: Implements the "Target-Aware" representation where class descriptions are prepended to the input.
-- **Hybrid Architecture**: Implements the Transformer + MLP model with Numerical Fusion and Mean Pooling as described in the paper.
-- **Didactic**: Includes a walkthrough notebook to understand every step of the data transformation.
+- **Hybrid Architecture**: Implements the Transformer + MLP model with Numerical Fusion and Mean Pooling.
+- **Multi-Task Training**: A unified training loop that handles both classification and regression datasets simultaneously.
+- **Selective Unfreezing**: Support for unfreezing the last $k$ layers of the textual encoder for efficient fine-tuning.
 
 ## Repository Structure
 
 - `nanotabstar/`: Core library.
   - `preparation.py`: The `TabSTARPreprocessor` class.
   - `model.py`: The `TabSTARModel` architecture.
-  - `data_loader.py`: PyTorch-compatible dataloader with on-the-fly tokenization.
+  - `data_loader.py`: PyTorch-compatible dataloader with on-the-fly tokenization and train/val splits.
+  - `metrics.py`: Loss and metric calculation for multi-task learning.
+  - `train.py`: The main pretraining loop and execution script.
 - `scripts/`:
-  - `create_tabstar_corpus.py`: Script to generate the `.h5` pretrain corpus from OpenML datasets.
+  - `create_tabstar_corpus.py`: Script to generate the `.h5` pretrain corpus.
 - `notebooks/`:
   - `explore_corpus_generation.ipynb`: Step-by-step guide to the preprocessing logic.
+  - `inference_demo.ipynb`: Manual inspection of model predictions on validation samples.
 - `docs/`:
   - `pretrain_corpus.md`: Technical documentation of the HDF5 format.
   - `model.md`: Detailed explanation of the hybrid architecture.
+  - `training.md`: Overview of the multi-task pretraining strategy.
 
 ## Getting Started (Current Phase)
 
-Currently, the repository focuses on **Data Preparation**. You can generate the same pretrain corpus used by TabSTAR and explore the transformation logic.
+Currently, the repository supports **Data Preparation** and **Pretraining**.
 
 ### 1. Install Dependencies
 ```bash
@@ -49,7 +54,14 @@ pip install -r requirements.txt
 ```bash
 python scripts/create_tabstar_corpus.py
 ```
-This will download several datasets from OpenML and save them to `data/pretrain_corpus.h5`.
+This will download several datasets from OpenML and save them to `data/pretrain_corpus_tabstar.h5`.
+
+### 3. Start Pretraining
+To start the multi-task pretraining loop, run the training module:
+```bash
+python -m nanotabstar.train
+```
+This will initialize the model, apply the unfreezing strategy (last 6 layers of E5), and start training on the sampled datasets. The best model will be saved as `best_model.pt`.
 
 ### 3. Explore the Logic
 Open `notebooks/explore_corpus_generation.ipynb` to see how tabular rows are transformed into natural language.

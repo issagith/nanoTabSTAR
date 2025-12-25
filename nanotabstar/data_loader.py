@@ -16,18 +16,39 @@ class TabSTARDataLoader:
         tokenizer: Any, 
         batch_size: int = 32, 
         max_length: int = 128,
-        steps_per_epoch: int = 100
+        steps_per_epoch: int = 100,
+        split: str = 'train',
+        val_ratio: float = 0.1,
+        seed: int = 42
     ):
         self.h5_path = h5_path
         self.tokenizer = tokenizer
         self.batch_size = batch_size
         self.max_length = max_length
         self.steps_per_epoch = steps_per_epoch
+        self.split = split
+        self.val_ratio = val_ratio
+        self.seed = seed
         
         with h5py.File(h5_path, 'r') as f:
             self.dataset_names = list(f.keys())
+            # Store indices for each dataset to respect the split
+            self.dataset_indices = {}
+            for ds_name in self.dataset_names:
+                n_samples = f[ds_name]['labels'].shape[0]
+                indices = np.arange(n_samples)
+                
+                # Deterministic split
+                rng = np.random.RandomState(seed)
+                rng.shuffle(indices)
+                
+                split_idx = int(n_samples * (1 - val_ratio))
+                if split == 'train':
+                    self.dataset_indices[ds_name] = indices[:split_idx]
+                else:
+                    self.dataset_indices[ds_name] = indices[split_idx:]
         
-        print(f"TabSTARDataLoader initialized with {len(self.dataset_names)} datasets.")
+        print(f"TabSTARDataLoader ({split}) initialized with {len(self.dataset_names)} datasets.")
 
     def _tokenize_batch(self, texts: List[str]) -> Dict[str, torch.Tensor]:
         """Helper to tokenize a list of strings into input_ids and attention_mask."""
@@ -47,23 +68,24 @@ class TabSTARDataLoader:
                 ds_name = random.choice(self.dataset_names)
                 grp = f[ds_name]
                 
-                n_samples = grp['labels'].shape[0]
+                available_indices = self.dataset_indices[ds_name]
+                n_available = len(available_indices)
                 
-                # 2. Sample indices
-                if n_samples <= self.batch_size:
-                    indices = np.arange(n_samples)
+                if n_available == 0:
+                    continue
+
+                # 2. Sample indices from the available ones for this split
+                if n_available <= self.batch_size:
+                    batch_indices = available_indices
                 else:
-                    indices = np.random.choice(n_samples, self.batch_size, replace=False)
+                    batch_indices = np.random.choice(available_indices, self.batch_size, replace=False)
                 
-                indices = np.sort(indices) 
+                batch_indices = np.sort(batch_indices) 
                 
                 # 3. Retrieve Raw Data
-                # feature_texts: (B, M)
-                raw_feat_texts = grp['feature_texts'][indices].astype(str)
-                # feature_num_values: (B, M)
-                feat_nums = torch.from_numpy(grp['feature_num_values'][indices])
-                # labels: (B,)
-                labels_raw = grp['labels'][indices]
+                raw_feat_texts = grp['feature_texts'][batch_indices].astype(str)
+                feat_nums = torch.from_numpy(grp['feature_num_values'][batch_indices])
+                labels_raw = grp['labels'][batch_indices]
                 task_type = grp.attrs.get('task_type', 'classification')
                 
                 if task_type == 'classification':
