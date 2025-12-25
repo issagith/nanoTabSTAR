@@ -1,5 +1,6 @@
 import os
 import sys
+import gc
 import h5py
 import numpy as np
 import pandas as pd
@@ -12,6 +13,9 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from nanotabstar.preparation import TabSTARPreprocessor
+
+MAX_SAMPLES_PER_DATASET = 500000
+PROCESSING_BATCH_SIZE = 10000
 
 # Classification datasets (binary + multiclass)
 CLASSIF_DATASET_CATALOG = {
@@ -53,10 +57,10 @@ CLASSIF_DATASET_CATALOG = {
     "MUL_SOCIAL_OKCUPID_DATING_JOB_STEM": 42734,                  # okcupid-stem
     "MUL_SOCIAL_DPBEDIA": 46686,                                  # DBPedia
     "MUL_SOCIAL_HOLISTIC_BIAS": 46684,                            # HolisticBias
-    "MUL_SOCIAL_WIKIPEDIA_TALK_LABELS_ATTACKS": 46708,            # Wikipedia_Talk_Labels
+    # "MUL_SOCIAL_WIKIPEDIA_TALK_LABELS_ATTACKS": 46708,            # Wikipedia_Talk_Labels
 
     # Large reference datasets for distributional diversity
-    "BIN_SCIENCE_PARTICLE_HIGGS": 42769,                          # Higgs
+    #"BIN_SCIENCE_PARTICLE_HIGGS": 42769,                          # Higgs
     "MUL_NATURE_FOREST_COVERTYPE": 1596,                          # covertype
     "BIN_ANONYM_PORTO_SEGURO": 42742,                             # porto-seguro
     "BIN_ANONYM_APS_FAILURE": 41138,                              # APSFailure
@@ -68,12 +72,6 @@ CLASSIF_DATASET_CATALOG = {
     "MUL_PROFESSIONAL_NURSERY_APPLICATIONS_SLOVENIA": 26,         # nursery
     "MUL_FOOD_WINE_QUALITY_CAT": 40498,                           # wine-quality-white
     "MUL_SPORTS_CONNECT4_GAME": 40668,                            # connect-4
-
-    # Vision-to-tabular datasets
-    "MUL_COMPUTERS_IMAGE_MNIST_FASHION": 40996,                   # Fashion-MNIST
-    "MUL_COMPUTERS_IMAGE_MNIST_DIGITS": 554,                      # mnist
-    "MUL_COMPUTERS_IMAGE_CIFAR10": 40927,                         # CIFAR_10
-    "MUL_COMPUTERS_IMAGE_MNIST_JAPANESE_KUZUSHIJI_49": 41991,     # Kuzushiji-49
 }
 
 # Regression datasets
@@ -133,20 +131,20 @@ REG_DATASET_CATALOG = {
     # Sports analytics
     "REG_SPORTS_BASEBALL_HITTER_SALARY": 525,                     # baseball-hitter
     "REG_SPORTS_MONEYBALL": 41021,                                # Moneyball
-    "REG_SPORTS_NBA_2K20_PLAYERS_RATING": 43420,                  # NBA-2k20-player-dataset
+    #"REG_SPORTS_NBA_2K20_PLAYERS_RATING": 43420,                  # NBA-2k20-player-dataset
     "REG_FINANCIAL_STOCK_AEROSPACE": 223,                         # stock
 }
 
 
 def prepare_dataset_locally(dataset_id, name, is_cls=None):
     """
-    Downloads a dataset from OpenML and applies TabSTAR preprocessing.
+    Downloads a dataset and fits the preprocessor.
+    Returns the fitted preprocessor, the dataframe, and target info.
     """
     print(f"  Fetching {name} (ID: {dataset_id}) from OpenML...")
     data = fetch_openml(data_id=dataset_id, as_frame=True, parser='auto')
     df = data.frame
     
-    # Identify the target column based on OpenML metadata or position
     if data.target_names and len(data.target_names) > 0:
         target_col = data.target_names[0]
     elif data.target is not None:
@@ -160,27 +158,22 @@ def prepare_dataset_locally(dataset_id, name, is_cls=None):
         target_col = df.columns[-1]
     
     print(f"  Detected target column: {target_col}")
+
+    if len(df) > MAX_SAMPLES_PER_DATASET:
+        print(f"  Dataset too large ({len(df)} rows). Sub-sampling to {MAX_SAMPLES_PER_DATASET}...")
+        df = df.sample(n=MAX_SAMPLES_PER_DATASET, random_state=42).reset_index(drop=True)
     
     if is_cls is None:
-        # Heuristic to distinguish between classification and regression if not specified
         is_cls = not pd.api.types.is_numeric_dtype(df[target_col]) or df[target_col].nunique() < 10
     
-    preprocessor = TabSTARPreprocessor(is_cls=is_cls, verbose=True)
+    preprocessor = TabSTARPreprocessor(is_cls=is_cls, verbose=False)
     preprocessor.fit(df.drop(columns=[target_col]), df[target_col])
-    processed_data = preprocessor.transform(df.drop(columns=[target_col]), df[target_col])
     
-    return {
-        'x_txt': processed_data.x_txt,
-        'x_num': processed_data.x_num,
-        'y': processed_data.y.values,
-        'target_texts': processed_data.x_txt[0, :processed_data.d_output], # Target tokens are at the start
-        'd_output': processed_data.d_output,
-        'n_features': processed_data.x_num.shape[1] - processed_data.d_output
-    }
+    return preprocessor, df, target_col
 
 def create_corpus(output_path):
     """
-    Iterates through catalogs to build a unified HDF5 pretraining corpus.
+    Builds the HDF5 corpus using batch processing to minimize RAM usage.
     """
     print(f"Starting corpus creation at {output_path}")
     dt = h5py.special_dtype(vlen=str)
@@ -194,36 +187,53 @@ def create_corpus(output_path):
         for catalog, is_cls, task_name in tasks:
             for name, ds_id in tqdm(catalog.items(), desc=f"Processing {task_name}"):
                 try:
-                    data = prepare_dataset_locally(ds_id, name, is_cls=is_cls)
+                    preprocessor, df, target_col = prepare_dataset_locally(ds_id, name, is_cls=is_cls)
+                    
+                    n_samples = len(df)
+                    d_out = preprocessor.d_output
+                    
+                    # We need one transform to get the number of features/columns
+                    sample_data = preprocessor.transform(df.iloc[:1].drop(columns=[target_col]), df.iloc[:1][target_col])
+                    n_feat_cols = sample_data.x_txt.shape[1] - d_out
+                    target_texts = sample_data.x_txt[0, :d_out].astype(str)
                     
                     ds_group = f_out.create_group(name)
                     
-                    # Separate feature texts from target tokens
-                    n_samples, n_cols = data['x_txt'].shape
-                    d_out = data['d_output']
-                    
-                    feature_texts = data['x_txt'][:, d_out:].astype(str)
-                    target_texts = data['x_txt'][0, :d_out].astype(str)
-                    
-                    ds_feat_txt = ds_group.create_dataset('feature_texts', feature_texts.shape, dtype=dt, compression='gzip')
-                    ds_feat_txt[:] = feature_texts
-                    
-                    ds_target_txt = ds_group.create_dataset('target_texts', target_texts.shape, dtype=dt, compression='gzip')
+                    # Initialize HDF5 datasets
+                    ds_feat_txt = ds_group.create_dataset('feature_texts', (n_samples, n_feat_cols), dtype=dt, compression='gzip')
+                    ds_target_txt = ds_group.create_dataset('target_texts', (d_out,), dtype=dt, compression='gzip')
                     ds_target_txt[:] = target_texts
                     
-                    # Store numerical values and labels
-                    # Numerical features are aligned with feature_texts
-                    feature_nums = data['x_num'][:, d_out:].astype(np.float32)
+                    ds_feat_num = ds_group.create_dataset('feature_num_values', (n_samples, n_feat_cols), dtype=np.float32, compression='gzip')
+                    ds_labels = ds_group.create_dataset('labels', (n_samples,), compression='gzip')
                     
-                    ds_group.create_dataset('feature_num_values', data=feature_nums, compression='gzip')
-                    ds_group.create_dataset('labels', data=data['y'], compression='gzip')
+                    # Process in batches
+                    for start_idx in range(0, n_samples, PROCESSING_BATCH_SIZE):
+                        end_idx = min(start_idx + PROCESSING_BATCH_SIZE, n_samples)
+                        batch_df = df.iloc[start_idx:end_idx]
+                        
+                        batch_data = preprocessor.transform(
+                            batch_df.drop(columns=[target_col]), 
+                            batch_df[target_col]
+                        )
+                        
+                        # Write slices
+                        ds_feat_txt[start_idx:end_idx] = batch_data.x_txt[:, d_out:].astype(str)
+                        ds_feat_num[start_idx:end_idx] = batch_data.x_num[:, d_out:].astype(np.float32)
+                        ds_labels[start_idx:end_idx] = batch_data.y.values
+                        
+                        del batch_data
+                        gc.collect()
                     
-                    # Store metadata for the training loop
+                    # Metadata
                     ds_group.attrs['d_output'] = d_out
-                    ds_group.attrs['n_features'] = data['n_features']
+                    ds_group.attrs['n_features'] = n_feat_cols
                     ds_group.attrs['task_type'] = 'classification' if is_cls else 'regression'
                     
-                    print(f"Saved {name}")
+                    print(f"  Saved {name} ({n_samples} samples)")
+                    
+                    del df, preprocessor
+                    gc.collect()
                     
                 except Exception as e:
                     print(f"Failed {name}: {e}")
