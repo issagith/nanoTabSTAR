@@ -19,6 +19,7 @@ class TabSTARDataLoader:
         split: str = 'train',
         val_ratio: float = 0.1,
         max_features_per_batch: int = 200,
+        max_samples: int = 2048,
         seed: int = 42
     ):
         self.h5_path = h5_path
@@ -28,6 +29,7 @@ class TabSTARDataLoader:
         self.split = split
         self.val_ratio = val_ratio
         self.max_features_per_batch = max_features_per_batch
+        self.max_samples = max_samples
         self.seed = seed
         
         with h5py.File(h5_path, 'r') as f:
@@ -92,7 +94,6 @@ class TabSTARDataLoader:
             local_random = random.Random(None)
 
         epoch_batches = []
-        MAX_SAMPLES_PER_EPOCH = 2048 
 
         with h5py.File(self.h5_path, 'r') as f:
             for ds_name in self.dataset_names:
@@ -102,9 +103,9 @@ class TabSTARDataLoader:
                 if n_available == 0:
                     continue
 
-                # Select indices for this epoch (Max 2048)
-                if n_available > MAX_SAMPLES_PER_EPOCH:
-                    epoch_indices = local_rng.choice(available_indices, MAX_SAMPLES_PER_EPOCH, replace=False)
+                # Select indices for this epoch (Max self.max_samples)
+                if n_available > self.max_samples:
+                    epoch_indices = local_rng.choice(available_indices, self.max_samples, replace=False)
                 else:
                     epoch_indices = available_indices
                 
@@ -170,10 +171,9 @@ class TabSTARDataLoader:
 
     def __len__(self):
         # This is an approximation as the exact number of batches depends on 
-        # the number of samples in each dataset (capped at 2048).
+        # the number of samples in each dataset (capped at self.max_samples).
         total_batches = 0
-        MAX_SAMPLES_PER_EPOCH = 2048
         for ds_name in self.dataset_names:
-            n = min(len(self.dataset_indices[ds_name]), MAX_SAMPLES_PER_EPOCH)
+            n = min(len(self.dataset_indices[ds_name]), self.max_samples)
             total_batches += (n + self.batch_size - 1) // self.batch_size
         return total_batches

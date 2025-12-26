@@ -220,7 +220,32 @@ REG_DATASET_CATALOG_64 = {
     "REG_SPORTS_MONEYBALL": 41021,                                # Moneyball
 }
 
+CLASSIF_DATASET_CATALOG_16 = {
+    # Binaires très stables et rapides
+    "BIN_HEALTHCARE_BREAST_CANCER_WISCONSIN": 15,                 # breast-w
+    "BIN_HEALTHCARE_CELLS_WDBC_WISCONSIN_BREAST_CANCER": 1510,    # wdbc
+    "BIN_FINANCIAL_CREDIT_GERMAN": 31,                            # credit-g
+    "BIN_FINANCIAL_ADULT_INCOME": 1590,                           # adult
+    "BIN_SOCIAL_SPAM_EMAILS_SPAMBASE": 44,                        # spambase
+    "BIN_NATURE_MUSHROOM_POISONOUS": 24,                          # mushroom
+    "BIN_ANONYM_TWONORM": 1507,                                   # twonorm
+    # Textuel binaire pour tester la partie TabSTAR "texte dans le tabulaire"
+    "BIN_SOCIAL_TWITTER_DISASTER": 43395,                         # Disaster-Tweets
 
+    # Multiclasses (C>2) pour tester target tokens + CrossEntropy multi-classes
+    "MUL_COMPUTERS_IMAGE_LETTER_RECOGNITION": 6,                  # letter
+    "MUL_ANONYM_PENDIGITS": 32,                                   # pendigits
+    "MUL_HEALTHCARE_HEART_ARRHYTMIA": 5,                          # arrhythmia
+}
+
+REG_DATASET_CATALOG_16 = {
+    # Régressions classiques, très utilisées, bon signal rapidement
+    "REG_HOUSES_CALIFORNIA_HOUSES": 44977,                        # california_housing
+    "REG_SCIENCE_CONCRETE_COMPRESSIVE_STRENGTH": 44959,           # concrete
+    "REG_SCIENCE_ENERGY_EFFICIENCY": 44960,                       # energy_efficiency
+    "REG_COMPUTERS_ROBOT_KIN8NM": 44980,                          # kin8nm
+    "REG_NATURE_ABALONE_FISH_RINGS": 42726,                       # abalone
+}
 
 def prepare_dataset_locally(dataset_id, name, is_cls=None):
     """
@@ -257,7 +282,7 @@ def prepare_dataset_locally(dataset_id, name, is_cls=None):
     
     return preprocessor, df, target_col
 
-def create_corpus(output_path):
+def create_corpus(reg_catalog, classif_catalog, output_path):
     """
     Builds the HDF5 corpus using batch processing to minimize RAM usage.
     """
@@ -265,8 +290,8 @@ def create_corpus(output_path):
     dt = h5py.special_dtype(vlen=str)
     
     tasks = [
-        (CLASSIF_DATASET_CATALOG_64, True, "Classification"),
-        (REG_DATASET_CATALOG_64, False, "Regression")
+        (classif_catalog, True, "Classification"),
+        (reg_catalog, False, "Regression")
     ]
     
     with h5py.File(output_path, 'w') as f_out:
@@ -327,6 +352,6 @@ def create_corpus(output_path):
                     traceback.print_exc()
 
 if __name__ == "__main__":
-    output_file = r"c:\Users\issa\dev\TFM\nanoTabStar\data\pretrain_corpus_tabstar_64.h5"
+    output_file = r"c:\Users\issa\dev\TFM\nanoTabStar\data\pretrain_corpus_tabstar_16.h5"
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
-    create_corpus(output_file)
+    create_corpus(REG_DATASET_CATALOG_16, CLASSIF_DATASET_CATALOG_16, output_file)

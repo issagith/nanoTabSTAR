@@ -19,6 +19,8 @@ def run_pretraining(
     epochs: int = 10,
     gradient_accumulation_steps: int = 4,
     unfreeze_layers: int = 6,
+    max_samples_train: int = 2048,
+    max_samples_val: int = 512,
     seed: int = 42,
     device: Optional[torch.device] = None,
     save_path: str = "best_model.pt"
@@ -51,14 +53,16 @@ def run_pretraining(
         tokenizer=tokenizer,
         batch_size=batch_size,
         split='train',
+        max_samples=max_samples_train,
         seed=seed
     )
     
     val_loader = TabSTARDataLoader(
         h5_path=h5_path,
         tokenizer=tokenizer,
-        batch_size=batch_size,
+        batch_size=batch_size * 2, # Validation can use larger batches (no gradients)
         split='val',
+        max_samples=max_samples_val,
         seed=seed
     )
     
@@ -205,11 +209,11 @@ def run_pretraining(
 
 if __name__ == "__main__":
     # Default configuration for direct execution
-    H5_PATH = "data/pretrain_corpus_tabstar.h5"
+    H5_PATH = "data/pretrain_corpus_tabstar_16.h5"
     
     if not os.path.exists(H5_PATH):
         # Try to find it relative to project root if run from within nanotabstar/
-        H5_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "pretrain_corpus_tabstar_64.h5")
+        H5_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "pretrain_corpus_tabstar.h5")
 
     if not os.path.exists(H5_PATH):
         print(f"Error: Corpus not found at {H5_PATH}. Please run scripts/create_tabstar_corpus.py first.")
@@ -217,5 +221,5 @@ if __name__ == "__main__":
         run_pretraining(
             h5_path=H5_PATH,
             epochs=30,
-            save_path="data/best_model.pt"
+            save_path="data/best_model_64.pt"
         )
