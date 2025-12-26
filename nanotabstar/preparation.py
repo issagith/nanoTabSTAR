@@ -118,11 +118,16 @@ class TabSTARPreprocessor:
         # Prepend target tokens (Target-Awareness)
         x = self._prepend_target_tokens(x, self.y_name, self.y_values)
         
-        text_cols = [col for col in x.columns if col not in num_cols]
-        x_txt_df = x[text_cols + num_cols].copy()
-        x_num = np.zeros(shape=x.shape, dtype=np.float32)
+        # Filter numerical columns to only those still present in x (not dropped)
+        active_num_cols = [col for col in num_cols if col in x.columns]
+        text_cols = [col for col in x.columns if col not in active_num_cols]
         
-        for col in num_cols:
+        # Reorder x to have text columns first, then numerical columns
+        # This ensures x_txt and x_num are perfectly aligned by column index
+        x_txt_df = x[text_cols + active_num_cols].copy()
+        x_num = np.zeros(shape=x_txt_df.shape, dtype=np.float32)
+        
+        for col in active_num_cols:
             # Semantic verbalization (e.g., "10 to 20 (Quantile 10-20%)")
             x_txt_df[col] = self._transform_numerical_bins(x[col], self.semantic_transformers[col])
             

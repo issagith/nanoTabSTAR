@@ -14,11 +14,11 @@ if project_root not in sys.path:
 
 from nanotabstar.preparation import TabSTARPreprocessor
 
-MAX_SAMPLES_PER_DATASET = 500000
+MAX_SAMPLES_PER_DATASET = 300000
 PROCESSING_BATCH_SIZE = 10000
 
 # Classification datasets (binary + multiclass)
-CLASSIF_DATASET_CATALOG = {
+CLASSIF_DATASET_CATALOG_BIG = {
     # Small/medium classics for stability and debugging
     "BIN_HEALTHCARE_BREAST_CANCER_WISCONSIN": 15,                 # breast-w
     "BIN_HEALTHCARE_CELLS_WDBC_WISCONSIN_BREAST_CANCER": 1510,    # wdbc
@@ -75,7 +75,7 @@ CLASSIF_DATASET_CATALOG = {
 }
 
 # Regression datasets
-REG_DATASET_CATALOG = {
+REG_DATASET_CATALOG_BIG = {
     # Classic tabular regression
     "REG_HOUSES_CALIFORNIA_HOUSES": 44977,                        # california_housing
     "REG_SCIENCE_CONCRETE_COMPRESSIVE_STRENGTH": 44959,           # concrete_compressive_strength
@@ -135,6 +135,92 @@ REG_DATASET_CATALOG = {
     "REG_FINANCIAL_STOCK_AEROSPACE": 223,                         # stock
 }
 
+CLASSIF_DATASET_CATALOG_64 = {
+    # Binary classics (stable, good signal, fast)
+    "BIN_HEALTHCARE_BREAST_CANCER_WISCONSIN": 15,                 # breast-w
+    "BIN_HEALTHCARE_CELLS_WDBC_WISCONSIN_BREAST_CANCER": 1510,    # wdbc
+    "BIN_FINANCIAL_CREDIT_GERMAN": 31,                            # credit-g
+    "BIN_FINANCIAL_ADULT_INCOME": 1590,                           # adult
+    "BIN_SOCIAL_TIC_TAC_TOE": 50,                                 # tic-tac-toe
+    "BIN_ANONYM_MONKS_PROBLEM_2": 334,                            # monks-problems-2
+    "BIN_ANONYM_AUSTRALIAN_CREDIT_APPROVAL": 40981,               # Australian
+    "BIN_SOCIAL_SPAM_EMAILS_SPAMBASE": 44,                        # spambase
+    "BIN_NATURE_MUSHROOM_POISONOUS": 24,                          # mushroom
+    "BIN_SOCIAL_POLITICS_US_CONGRESS_VOTES": 56,                  # vote
+    "BIN_HEALTHCARE_BLOOD_TRANSFUSION": 1464,                     # blood-transfusion-service-center
+    "BIN_HEALTHCARE_LIVER_INDIAN_ILPD": 1480,                     # ilpd
+    "BIN_NATURE_OZONE_LEVEL": 1487,                               # ozone-level-8hr
+    "BIN_NATURE_DISEASED_TREES_WILT": 40983,                      # wilt
+    "BIN_ANONYM_TWONORM": 1507,                                   # twonorm
+    "BIN_FINANCIAL_BANK_MARKETING": 1461,                         # bank-marketing
+    "BIN_GEOGRAPHY_NOMAO_SEARCH_ENGINE": 1486,                    # nomao
+    "BIN_TRANSPORTATION_ROAD_SAFETY_GENDER": 45038,               # road-safety
+    "BIN_TRANSPORTATION_CAR_BAD_BUY_KICK": 41162,                 # kick
+    "BIN_SOCIAL_COMPASS_TWO_YEARS_OFFEND": 45039,                 # compas-two-years
+    "BIN_SOCIAL_SPEED_DATING": 40536,                             # SpeedDating
+    "BIN_ANONYM_PORTO_SEGURO": 42742,                             # porto-seguro
+    "BIN_ANONYM_APS_FAILURE": 41138,                              # APSFailure
+    "BIN_SCIENCE_PARTICLE_HIGGS": 23512,                          # higgs (version OpenML courante)
+    "BIN_FINANCIAL_BANKNOTE_AUTHENTICATION": 1462,                # banknote-authentication
+    "BIN_SOCIAL_TITANIC_SURVIVAL": 40945,                         # Titanic
+
+    # Textual / high-cardinality (for TabSTAR interest on tabular text)
+    "BIN_SOCIAL_POLICE_INCIDENTS_SAN_FRANCISCO": 42732,           # sf-police-incidents
+    "BIN_SOCIAL_JIGSAW_TOXICITY": 46654,                          # jigsaw-toxicity
+    "BIN_SOCIAL_TWITTER_DISASTER": 43395,                         # Disaster-Tweets
+    "BIN_CONSUMER_HOTEL_REVIEW": 43721,                           # Hotel-Reviews
+    "BIN_SOCIAL_HATE_SPEECH_DYNAMICALLY_GENERATED": 46683,        # Dynamically-Generated-Hate-Speech-Dataset
+    "MUL_SOCIAL_WIKIPEDIA_TALK_LABELS_ATTACKS": 46708,            # Wikipedia_Talk_Labels
+
+    # Multiclass classics (reasonable C, diversity)
+    "MUL_HEALTHCARE_HEART_ARRHYTMIA": 5,                          # arrhythmia
+    "MUL_NATURE_FOREST_COVERTYPE": 1596,                          # covertype
+    "MUL_COMPUTERS_IMAGE_LETTER_RECOGNITION": 6,                  # letter
+    "MUL_ANONYM_PENDIGITS": 32,                                   # pendigits
+    "MUL_COMPUTERS_PAGE_BLOCK_PARSING": 30,                       # page-blocks
+    "MUL_PROFESSIONAL_NURSERY_APPLICATIONS_SLOVENIA": 26,         # nursery
+    "MUL_FOOD_WINE_QUALITY_CAT": 40498,                           # wine-quality-white (cat)
+    "MUL_SPORTS_CONNECT4_GAME": 40668,                            # connect-4
+    "MUL_TRANSPORTATION_TRAFFIC_ACCIDENTS_FARS": 40672,           # fars
+    "MUL_TRANSPORTATION_TRAFFIC_VIOLATION": 42345,                # Traffic_violations
+    "MUL_SOCIAL_OKCUPID_DATING_JOB_STEM": 42734,                  # okcupid-stem
+    "MUL_AUDIO_SPOKEN_ARABIC_DIGITS": 1503,                       # spoken-arabic-digit
+    "MUL_SOCIAL_HOLISTIC_BIAS": 46684,                            # HolisticBias
+    "MUL_SOCIAL_STACKOVERFLOW_POLARITY": 43160,                   # StackOverflow-polarity
+    "MUL_SYNTHETIC_POKER_HAND": 1567,                             # poker-hand
+}
+
+REG_DATASET_CATALOG_64 = {
+    # Classic tabular regression
+    "REG_HOUSES_CALIFORNIA_HOUSES": 44977,                        # california_housing
+    "REG_SCIENCE_CONCRETE_COMPRESSIVE_STRENGTH": 44959,           # concrete_compressive_strength
+    "REG_SCIENCE_ENERGY_EFFICIENCY": 44960,                       # energy_efficiency
+    "REG_SCIENCE_AIRFOIL_SELF_NOISE": 44957,                      # airfoil_self_noise
+    "REG_HOUSES_BOSTON_HOUSE": 531,                               # boston
+    "REG_NATURE_ABALONE_FISH_RINGS": 42726,                       # abalone
+
+    # Classic “TFM” regression (often used in tabular ML)
+    "REG_COMPUTERS_ROBOT_KIN8NM": 44980,                          # kin8nm
+    "REG_COMPUTERS_CPU_ACTIVITY": 44978,                          # cpu_activity
+    "REG_ANONYM_BANK_32NH": 558,                                  # bank32nh
+    "REG_COMPUTERS_PUMA_ROBOT_ARM": 44981,                        # pumadyn32nh
+
+    # Engineering and transportation (distributional diversity)
+    "REG_TRANSPORTATION_NAVAL_PROPULSION_PLANT": 44969,           # naval_propulsion_plant
+    "REG_TRANSPORTATION_ZURICH_PUBLIC_TRANSPORT_DELAY": 40753,    # delays_zurich_transport
+
+    # Socio-economic / environmental
+    "REG_SOCIAL_US_CRIME": 42730,                                 # us_crime
+    "REG_SOCIAL_STRIKES_PER_COUNTRY": 549,                        # strikes
+    "REG_NATURE_NO2_POLLUTION_NORWAY": 547,                       # no2
+    "REG_NATURE_FOREST_FIRES": 44962,                             # forest_fires
+
+    # Sports analytics
+    "REG_SPORTS_BASEBALL_HITTER_SALARY": 525,                     # baseball-hitter
+    "REG_SPORTS_MONEYBALL": 41021,                                # Moneyball
+}
+
+
 
 def prepare_dataset_locally(dataset_id, name, is_cls=None):
     """
@@ -179,8 +265,8 @@ def create_corpus(output_path):
     dt = h5py.special_dtype(vlen=str)
     
     tasks = [
-        (CLASSIF_DATASET_CATALOG, True, "Classification"),
-        (REG_DATASET_CATALOG, False, "Regression")
+        (CLASSIF_DATASET_CATALOG_64, True, "Classification"),
+        (REG_DATASET_CATALOG_64, False, "Regression")
     ]
     
     with h5py.File(output_path, 'w') as f_out:
@@ -241,6 +327,6 @@ def create_corpus(output_path):
                     traceback.print_exc()
 
 if __name__ == "__main__":
-    output_file = r"c:\Users\issa\dev\TFM\nanoTabStar\data\pretrain_corpus_tabstar.h5"
+    output_file = r"c:\Users\issa\dev\TFM\nanoTabStar\data\pretrain_corpus_tabstar_64.h5"
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     create_corpus(output_file)

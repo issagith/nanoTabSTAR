@@ -60,7 +60,19 @@ The output is taken from the position corresponding to the **Target token** in t
 
 ---
 
-## 4. Target-Awareness
+## 4. Memory Optimizations
+
+To make the model "nano" (runnable on consumer GPUs), we implemented several memory-saving techniques:
+
+### Gradient Checkpointing
+We enable gradient checkpointing on the E5 backbone. This means that during the forward pass, we don't store the activations of the intermediate Transformer layers. Instead, we re-calculate them during the backward pass. This significantly reduces VRAM usage at the cost of a ~30% increase in training time.
+
+### Chunked Textual Encoding
+Since a tabular row can have many features, the total number of tokens can exceed the memory capacity of the Textual Encoder. We process the feature descriptions in **chunks** (e.g., 512 tokens at a time). This keeps the attention matrix size manageable while still allowing the model to encode all features.
+
+---
+
+## 5. Target-Awareness
 
 One of the unique features of TabSTAR is that the **target is part of the input sequence**. 
 - By prepending the target description (fused with $n=0$) to the features, the model "knows" what it is trying to predict before it even starts processing the features.

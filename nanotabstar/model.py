@@ -11,6 +11,9 @@ class TextualEncoder(nn.Module):
     def __init__(self, model_name: str = 'intfloat/e5-small-v2'):
         super().__init__()
         self.backbone = AutoModel.from_pretrained(model_name)
+        # Enable gradient checkpointing to save massive amounts of VRAM
+        # This recalculates activations during backward pass instead of storing them.
+        self.backbone.gradient_checkpointing_enable()
         
     def _mean_pooling(self, model_output, attention_mask):
         """Perform mean pooling on token embeddings using the attention mask."""
@@ -203,11 +206,20 @@ class TabSTARModel(nn.Module):
         # Fuse targets
         fused_target_embeddings = self.numerical_fusion(target_embeddings, target_num_values) # (B, C, D)
         
-        # --- Step 2: Encode Feature Tokens ---
+        # --- Step 2: Encode Feature Tokens (Chunked to avoid OOM) ---
         flat_feature_ids = feature_input_ids.view(B * M, L)
         flat_feature_mask = feature_attention_mask.view(B * M, L)
         
-        feature_embeddings = self.textual_encoder(input_ids=flat_feature_ids, attention_mask=flat_feature_mask) # (B*M, D)
+        # Process in chunks of 512 sequences to stay within GPU limits
+        chunk_size = 512
+        all_feature_embeddings = []
+        for i in range(0, B * M, chunk_size):
+            chunk_ids = flat_feature_ids[i : i + chunk_size]
+            chunk_mask = flat_feature_mask[i : i + chunk_size]
+            chunk_emb = self.textual_encoder(input_ids=chunk_ids, attention_mask=chunk_mask)
+            all_feature_embeddings.append(chunk_emb)
+            
+        feature_embeddings = torch.cat(all_feature_embeddings, dim=0) # (B*M, D)
         feature_embeddings = feature_embeddings.view(B, M, D)
         
         # Fuse features with their magnitudes

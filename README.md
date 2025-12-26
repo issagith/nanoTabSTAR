@@ -1,8 +1,8 @@
-# nanoTabStar (WIP)
+# nanoTabStar
 
 A compact, autonomous, and educational reimplementation of **TabSTAR**.
 
-`nanoTabStar` is an ongoing project to reimplement the full TabSTAR pipeline—from raw data to inference—in a clean, self-contained, and didactic way. It "vends" the sophisticated preprocessing logic of the original repository into a single, readable file, making it an ideal starting point for researchers and students.
+`nanoTabStar` is a project to reimplement the full TabSTAR pipeline—from raw data to inference—in a clean, self-contained, and didactic way. It "vends" the sophisticated preprocessing logic of the original repository into a single, readable file, making it an ideal starting point for researchers and students interested in Tabular Foundation Models (TFMs).
 
 ## Roadmap
 
@@ -10,18 +10,26 @@ The goal is to cover the entire lifecycle of a Tabular Foundation Model:
 
 - [x] **Phase 1: Autonomous Preprocessing**: Replicate TabSTAR's verbalization and scaling logic without external dependencies.
 - [x] **Phase 2: Corpus Generation**: Create a flexible HDF5 pretrain corpus storing raw strings for on-the-fly tokenization.
-- [x] **Phase 3: Model Architecture**: Implement the hybrid Transformer + MLP architecture.
-- [x] **Phase 4: Pretraining Loop**: Implement the multi-task pretraining strategy.
+- [x] **Phase 3: Model Architecture**: Implement the hybrid Transformer + MLP architecture with Numerical Fusion.
+- [x] **Phase 4: Pretraining Loop**: Implement the multi-task pretraining strategy with Gradient Accumulation and OneCycleLR.
 - [ ] **Phase 5: Fine-tuning & Inference**: Tools for downstream task adaptation and evaluation.
 
-## Key Features (Current)
+## Key Features
 
 - **Autonomous Preprocessing**: All logic for verbalization, numerical scaling, and date expansion is contained in `nanotabstar/preparation.py`.
-- **Flexible Corpus**: Generates an HDF5 pretrain corpus storing **raw strings**.
-- **Target-Aware**: Implements the "Target-Aware" representation where class descriptions are prepended to the input.
-- **Hybrid Architecture**: Implements the Transformer + MLP model with Numerical Fusion and Mean Pooling.
-- **Multi-Task Training**: A unified training loop that handles both classification and regression datasets simultaneously.
-- **Selective Unfreezing**: Support for unfreezing the last $k$ layers of the textual encoder for efficient fine-tuning.
+- **Flexible Corpus**: Generates an HDF5 pretrain corpus storing **raw strings**. This allows experimenting with different tokenizers without regenerating the data.
+- **Target-Aware Representation**: Implements the "Target-Aware" strategy where class descriptions (for classification) or target metadata (for regression) are prepended to the input features.
+- **Hybrid Architecture**: 
+  - **Textual Encoder**: Uses `e5-small-v2` to encode feature names and verbalized values.
+  - **Numerical Fusion**: A specialized Transformer block that fuses textual embeddings with normalized numerical magnitudes.
+  - **Interaction Encoder**: A global Transformer that models dependencies between all features and target tokens.
+- **Multi-Task Training**: A unified training loop that handles both classification (AUC) and regression (R2) datasets simultaneously.
+- **Memory Optimized**: 
+  - **Gradient Checkpointing**: Recalculates activations during backward pass to save VRAM.
+  - **Gradient Accumulation**: Simulates large batch sizes (e.g., 128) and ensures good meta-learning.
+- **Stable Optimization**: 
+  - **OneCycleLR**: Implements the 10% warmup and cosine annealing strategy from the paper.
+  - **Epoch-based Batching**: Pre-calculates and shuffles "pure" mini-batches (one dataset per batch) with atmost 2048 samples per dataset.
 
 ## Repository Structure
 
@@ -32,7 +40,7 @@ The goal is to cover the entire lifecycle of a Tabular Foundation Model:
   - `metrics.py`: Loss and metric calculation for multi-task learning.
   - `train.py`: The main pretraining loop and execution script.
 - `scripts/`:
-  - `create_tabstar_corpus.py`: Script to generate the `.h5` pretrain corpus.
+  - `create_tabstar_corpus.py`: Script to generate the `.h5` pretrain corpus from OpenML.
 - `notebooks/`:
   - `explore_corpus_generation.ipynb`: Step-by-step guide to the preprocessing logic.
   - `inference_demo.ipynb`: Manual inspection of model predictions on validation samples.
@@ -41,9 +49,7 @@ The goal is to cover the entire lifecycle of a Tabular Foundation Model:
   - `model.md`: Detailed explanation of the hybrid architecture.
   - `training.md`: Overview of the multi-task pretraining strategy.
 
-## Getting Started (Current Phase)
-
-Currently, the repository supports **Data Preparation** and **Pretraining**.
+## Getting Started
 
 ### 1. Install Dependencies
 ```bash
@@ -54,17 +60,21 @@ pip install -r requirements.txt
 ```bash
 python scripts/create_tabstar_corpus.py
 ```
-This will download several datasets from OpenML and save them to `data/pretrain_corpus_tabstar.h5`.
+This script downloads ~80 datasets from OpenML, processes them using the `TabSTARPreprocessor`, and saves them into a compressed HDF5 file.
 
 ### 3. Start Pretraining
-To start the multi-task pretraining loop, run the training module:
+To start the multi-task pretraining loop:
 ```bash
+# Recommended: optimize CUDA memory allocation on Windows
+$env:PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
 python -m nanotabstar.train
 ```
-This will initialize the model, apply the unfreezing strategy (last 6 layers of E5), and start training on the sampled datasets. The best model will be saved as `best_model.pt`.
-
-### 3. Explore the Logic
-Open `notebooks/explore_corpus_generation.ipynb` to see how tabular rows are transformed into natural language.
+The script will:
+1. Load the HDF5 corpus.
+2. Initialize the model with `e5-small-v2`.
+3. Unfreeze the last 6 layers of the textual encoder.
+4. Train using OneCycleLR and Gradient Accumulation.
+5. Save the best model to `data/best_model.pt`.
 
 ## Usage Example
 
@@ -77,11 +87,11 @@ from transformers import AutoTokenizer
 tokenizer = AutoTokenizer.from_pretrained("intfloat/e5-small-v2")
 model = TabSTARModel()
 
-# 2. Load the corpus for training
+# 2. Load the corpus
 loader = TabSTARDataLoader("data/pretrain_corpus_tabstar.h5", tokenizer=tokenizer)
 
 for batch in loader:
-    # Forward pass with on-the-fly tokenized data
+    # Forward pass
     logits = model(
         feature_input_ids=batch["feature_input_ids"],
         feature_attention_mask=batch["feature_attention_mask"],

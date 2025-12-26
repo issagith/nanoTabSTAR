@@ -1,58 +1,58 @@
 # Training Process
 
-This document describes the multi-task pretraining strategy used in **nanoTabStar**.
+This document describes the multi-task pretraining strategy used in **nanoTabStar**, which follows the recipe from the original TabSTAR paper while optimizing for consumer hardware.
 
-## 1. Multi-Task Pretraining
+## 1. Multi-Task Pretraining Strategy
 
 nanoTabStar is designed as a **Foundation Model** for tabular data. To achieve this, it is pretrained on a diverse collection of datasets simultaneously.
 
-### Dataset Sampling
-During pretraining, the model does not see one dataset at a time. Instead, for each batch:
-1. A dataset is randomly sampled from the HDF5 corpus.
-2. A batch of samples is drawn from that specific dataset.
-3. The model performs a forward pass using the dataset's specific target descriptions.
+### Global Batch Shuffling
+Unlike standard training where datasets are processed sequentially, nanoTabStar uses a **Global Batch Shuffling** strategy:
+1.  **Batch Generation**: For each dataset in the corpus, we generate all possible batches (up to a limit of 2048 samples per dataset per epoch).
+2.  **Pure Mini-Batches**: Each batch contains samples from **only one dataset**. This ensures that the model sees a consistent set of features and target descriptions within a single forward pass.
+3.  **Global Shuffle**: All batches from all datasets are pooled together and shuffled.
+4.  **Task Alternation**: As the model iterates through the shuffled pool, it constantly switches between different datasets and tasks (Classification vs. Regression). This "multi-task signal" prevents the model from overfitting to a specific domain.
 
-This approach forces the model to learn a general representation of tabular structures that works across different domains (e.g., medical, financial, housing).
-
----
-
-## 2. Training Objectives
-
-The model handles two types of tasks in a single loop:
-
-### Classification
-- **Target**: Categorical labels.
-- **Loss**: `CrossEntropyLoss`.
-- **Metric**: `ROC-AUC` (One-vs-Rest for multi-class).
-- **Mechanism**: The model produces logits for each class token provided in the input.
-
-### Regression
-- **Target**: Continuous values.
-- **Loss**: `MSELoss`.
-- **Metric**: `R² Score`.
-- **Mechanism**: The model produces a single scalar value from the target token.
+### Feature Consistency
+To handle datasets with hundreds of columns on limited VRAM, we sample a maximum of **200 features** per dataset. These features are sampled **once per dataset at the start of training** and remain fixed throughout the epoch. This ensures that the model learns stable relationships between specific features.
 
 ---
 
-## 3. Optimization Strategy
+## 2. Optimization & Scheduling
+
+### OneCycleLR Scheduler
+We use the `OneCycleLR` scheduler, which is known for "super-convergence":
+- **Warmup**: The learning rate starts low and increases to `5e-5` over the first 10% of the training steps.
+- **Annealing**: The learning rate then follows a cosine curve down to near zero.
+- **Momentum**: The scheduler also modulates momentum (or beta1 in AdamW) in inverse proportion to the learning rate.
+
+### Gradient Accumulation
+To simulate a large global batch size (e.g., 128) while fitting on a single GPU (batch size 16), we use **Gradient Accumulation**:
+- We perform 8 forward/backward passes before updating the weights.
+- This stabilizes the multi-task gradients, as each weight update is informed by 8 different batches (potentially from 8 different datasets).
 
 ### Selective Unfreezing
-By default, we use a **Partial Fine-tuning** strategy for the Textual Encoder (`e5-small-v2`):
-- The lower layers of the PLM are kept frozen to preserve general linguistic knowledge.
+We use a **Partial Fine-tuning** strategy for the Textual Encoder (`e5-small-v2`):
+- The lower layers are kept frozen to preserve general linguistic knowledge.
 - The **last 6 layers** are unfrozen to allow the model to adapt to the specific semantics of tabular feature names and values.
 
-### Hyperparameters
-- **Optimizer**: `AdamW` with weight decay (0.01).
-- **Learning Rate**: `5e-5` with a linear warmup for the first 10% of steps.
-- **Gradient Clipping**: Max norm of 1.0 to ensure stability.
-- **Batch Size**: 16 (default).
+---
+
+## 3. Memory Optimizations
+
+To run a Transformer-based model on 80+ datasets with a single consumer GPU (12GB-16GB VRAM), several optimizations are active:
+
+1.  **Gradient Checkpointing**: We trade compute for memory by not storing intermediate activations during the forward pass of the E5 backbone. They are re-calculated during the backward pass.
+2.  **Chunked Textual Encoding**: Feature descriptions are processed in chunks (e.g., 512 tokens at a time) to avoid the $O(N^2)$ memory bottleneck of long sequences in the Textual Encoder.
+3.  **Empty Cache**: The training loop explicitly calls `torch.cuda.empty_cache()` after validation to prevent fragmentation.
 
 ---
 
 ## 4. Evaluation and Checkpointing
 
 - **Validation Split**: 10% of each dataset is reserved for validation.
-- **Multi-Task Metric**: Since datasets have different scales and metrics, we track an average "Score" (AUC for classification, R² for regression).
+- **Seeded Validation**: The validation loader is seeded to ensure that the "Score" is comparable across epochs.
+- **Multi-Task Metric**: We track an average "Score" (AUC for classification, R² for regression).
 - **Best Model**: The model state is saved to `best_model.pt` whenever the average validation score improves.
 
 ---
@@ -60,13 +60,13 @@ By default, we use a **Partial Fine-tuning** strategy for the Textual Encoder (`
 ## 5. How to Run
 
 ### Start Pretraining
-To start the pretraining loop, run the training module from the project root:
+To start the pretraining loop:
 ```bash
 python -m nanotabstar.train
 ```
 
 ### Monitoring
-The script uses `tqdm` to show progress for both training and evaluation phases. It prints a summary at the end of each epoch:
+The script prints a summary at the end of each epoch:
 ```text
 Epoch 1 Summary:
   Train Loss: 0.4521
