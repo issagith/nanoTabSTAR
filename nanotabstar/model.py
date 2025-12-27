@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 from transformers import AutoModel
-from typing import Optional
+from typing import Optional, List
+from peft import LoraConfig, get_peft_model, PeftModel
 
 class TextualEncoder(nn.Module):
     """
@@ -12,8 +13,15 @@ class TextualEncoder(nn.Module):
         super().__init__()
         self.backbone = AutoModel.from_pretrained(model_name)
         # Enable gradient checkpointing to save massive amounts of VRAM
-        # This recalculates activations during backward pass instead of storing them.
         self.backbone.gradient_checkpointing_enable()
+        # Ensure gradients are computed even if inputs don't require them (needed for LoRA + Checkpointing)
+        if hasattr(self.backbone, "enable_input_require_grads"):
+            self.backbone.enable_input_require_grads()
+        else:
+            # Fallback for older transformers versions
+            def make_inputs_require_grad(module, input, output):
+                output.requires_grad_(True)
+            self.backbone.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
         
     def _mean_pooling(self, model_output, attention_mask):
         """Perform mean pooling on token embeddings using the attention mask."""
@@ -178,6 +186,43 @@ class TabSTARModel(nn.Module):
     def unfreeze_text_encoder_last_k(self, k: int = 6):
         """Unfreezes the last k layers of the textual encoder."""
         self.textual_encoder.unfreeze_last_k_layers(k)
+
+    def apply_lora(self, r: int = 32, alpha: int = 64, dropout: float = 0.1):
+        """
+        Applies LoRA to all blocks of the architecture as specified in Annex B.2.
+        Excludes the first 6 layers of the textual encoder (same as pretraining).
+        Returns the wrapped PeftModel.
+        """
+        # Target modules based on the names found in the architecture
+        target_modules = [
+            "query", "key", "value", "dense",                  # Textual Encoder (BERT)
+            "out_proj", "linear1", "linear2",                  # Transformer blocks (Fusion & Interaction)
+            "cls_head.layers.0", "cls_head.layers.2",          # Prediction Heads
+            "reg_head.layers.0", "reg_head.layers.2",
+            "numerical_encoder.layers.0", "numerical_encoder.layers.3" # Numerical Encoder
+        ]
+        
+        # Exclude the first 6 layers of the textual encoder (0 to 5)
+        # E5-small has 12 layers. We only apply LoRA to layers 6-11.
+        exclude_modules = [f"textual_encoder.backbone.encoder.layer.{i}" for i in range(6)]
+        
+        config = LoraConfig(
+            r=r,
+            lora_alpha=alpha,
+            target_modules=target_modules,
+            exclude_modules=exclude_modules,
+            lora_dropout=dropout,
+            bias="none",
+            task_type=None 
+        )
+        
+        # Apply LoRA to the entire TabSTARModel
+        # get_peft_model freezes the base model parameters by default.
+        peft_model = get_peft_model(self, config)
+        print(f"LoRA applied to all blocks (r={r}, alpha={alpha}, dropout={dropout})")
+        print(f"Excluded modules: {exclude_modules}")
+        peft_model.print_trainable_parameters()
+        return peft_model
 
     def forward(
         self, 
