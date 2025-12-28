@@ -4,10 +4,11 @@ import gc
 import h5py
 import numpy as np
 import pandas as pd
+import requests
+import io
 from tqdm import tqdm
 from sklearn.datasets import fetch_openml
 import kagglehub
-import openml
 from urllib.error import HTTPError
 
 # Add the project root to sys.path to allow importing nanotabstar
@@ -22,34 +23,34 @@ TEST_DATASETS = {
     # Classification (C01-C14)
     "MUL_CONSUMER_WOMEN_ECOMMERCE_CLOTHING_REVIEW": {"type": "openml", "id": 46659, "target": "Rating"},
     #"MUL_TRANSPORTATION_US_ACCIDENTS_MARCH23": {"type": "kaggle", "path": "sobhanmoosavi/us-accidents/US_Accidents_March23.csv", "target": "Severity"},
-    "MUL_PROFESSIONAL_DATA_SCIENTIST_SALARY": {"type": "openml", "id": 46664, "target": "Salary_Range"},
-    "BIN_SOCIAL_IMDB_GENRE_PREDICTION": {"type": "openml", "id": 46667, "target": "Genre"},
+    "MUL_PROFESSIONAL_DATA_SCIENTIST_SALARY": {"type": "openml", "id": 46664, "target": "salary"},
+    "BIN_SOCIAL_IMDB_GENRE_PREDICTION": {"type": "openml", "id": 46667, "target": "Genre_is_Drama"},
     "MUL_CONSUMER_PRODUCT_SENTIMENT": {"type": "openml", "id": 46651, "target": "Sentiment"},
-    "MUL_SOCIAL_GOOGLE_QA_TYPE_REASON": {"type": "openml", "id": 46658, "target": "Reason"},
+    "MUL_SOCIAL_GOOGLE_QA_TYPE_REASON": {"type": "openml", "id": 46658, "target": "category"},
     "MUL_FOOD_MICHELIN_GUIDE_RESTAURANTS": {"type": "kaggle", "path": "ngshiheng/michelin-guide-restaurants-2021/michelin_my_maps.csv", "target": "Award"},
     "BIN_PROFESSIONAL_FAKE_JOB_POSTING": {"type": "openml", "id": 46655, "target": "fraudulent"},
-    "BIN_SOCIAL_JIGSAW_TOXICITY": {"type": "openml", "id": 46654, "target": "toxic"},
+    "BIN_SOCIAL_JIGSAW_TOXICITY": {"type": "openml", "id": 46654, "target": "target"},
     "MUL_FOOD_YELP_REVIEWS": {"type": "kaggle", "path": "omkarsabnis/yelp-reviews-dataset/yelp.csv", "target": "stars"},
-    "MUL_SOCIAL_NEWS_CHANNEL_CATEGORY": {"type": "openml", "id": 46652, "target": "Category"},
-    "MUL_FOOD_WINE_REVIEW": {"type": "openml", "id": 46653, "target": "Variety"},
-    "BIN_PROFESSIONAL_KICKSTARTER_FUNDING": {"type": "openml", "id": 46668, "target": "State"},
+    "MUL_SOCIAL_NEWS_CHANNEL_CATEGORY": {"type": "openml", "id": 46652, "target": "category"},
+    "MUL_FOOD_WINE_REVIEW": {"type": "openml", "id": 46653, "target": "variety"},
+    "BIN_PROFESSIONAL_KICKSTARTER_FUNDING": {"type": "openml", "id": 46668, "target": "state"},
     "MUL_HOUSES_MELBOURNE_AIRBNB": {"type": "openml", "id": 46665, "target": "Price_Range"},
 
     # Regression (R01-R36)
-    "REG_CONSUMER_CAR_PRICE_CARDEKHO": {"type": "kaggle", "path": "sukritchatterjee/used-cars-dataset-cardekho/cars_details_merges.csv", "target": "selling_price"},
+    "REG_CONSUMER_CAR_PRICE_CARDEKHO": {"type": "kaggle", "path": "sukritchatterjee/used-cars-dataset-cardekho/cars_details_merges.csv", "target": "Selling_Price"},
     "REG_TRANSPORTATION_USED_CAR_MERCEDES_BENZ_ITALY": {"type": "kaggle", "path": "bogdansorin/second-hand-mercedes-benz-registered-2000-2023-ita/mercedes-benz.csv", "sep": ";", "target": "price"},
-    "REG_SOCIAL_ANIME_PLANET_RATING": {"type": "kaggle", "path": "hernan4444/animeplanet-recommendation-database-2020/anime.csv", "target": "rating"},
+    "REG_SOCIAL_ANIME_PLANET_RATING": {"type": "kaggle", "path": "hernan4444/animeplanet-recommendation-database-2020/anime.csv", "target": "Rating"},
     "REG_PROFESSIONAL_ML_DS_AI_JOBS_SALARIES": {"type": "url", "url": "https://ai-jobs.net/salaries/download/salaries.csv", "target": "salary_in_usd"},
     "REG_CONSUMER_BABIES_R_US_PRICES": {"type": "url", "url": "http://pages.cs.wisc.edu/~anhai/data/784_data/baby_products/csv_files/babies_r_us.csv", "target": "price"},
     "REG_PROFESSIONAL_EMPLOYEE_SALARY_MONTGOMERY": {"type": "openml", "id": 42125, "target": "Current_Annual_Salary"},
     "REG_SOCIAL_SPOTIFY_POPULARITY": {"type": "kaggle", "path": "maharshipandya/-spotify-tracks-dataset/dataset.csv", "target": "popularity"},
-    "REG_HOUSES_CALIFORNIA_PRICES_2020": {"type": "openml", "id": 46669, "target": "Median_House_Value"},
+    "REG_HOUSES_CALIFORNIA_PRICES_2020": {"type": "openml", "id": 46669, "target": "median_house_value"},
     "REG_SPORTS_FIFA22_WAGES": {"type": "openml", "id": 45012, "target": "Wage_EUR"},
     "REG_FOOD_COFFEE_REVIEW": {"type": "kaggle", "path": "hanifalirsyad/coffee-scrap-coffeereview/coffee_clean.csv", "target": "rating"},
     "REG_CONSUMER_BIKE_PRICE_BIKEWALE": {"type": "url", "url": "http://pages.cs.wisc.edu/~anhai/data/784_data/bikes/csv_files/bikewale.csv", "target": "price"},
     "REG_TRANSPORTATION_USED_CAR_PAKISTAN": {"type": "kaggle", "path": "mustafaimam/used-car-prices-in-pakistan-2021/Used_car_prices_in_Pakistan_cleaned.csv", "target": "Price"},
     "REG_CONSUMER_BOOK_PRICE_PREDICTION": {"type": "openml", "id": 46663, "target": "Price"},
-    "REG_CONSUMER_AMERICAN_EAGLE_PRICES": {"type": "openml", "id": 46656, "target": "Price"},
+    "REG_CONSUMER_AMERICAN_EAGLE_PRICES": {"type": "openml", "id": 46656, "target": "price"},
     "REG_PROFESSIONAL_EMPLOYEE_RENUMERATION_VANCOUBER": {"type": "url", "url": "https://opendata.vancouver.ca/api/records/1.0/download/?dataset=employee-remuneration-and-expenses-earning-over-75000&format=csv", "sep": ";", "target": "total_remuneration_and_expenses"},
     "REG_SOCIAL_FILMTV_MOVIE_RATING_ITALY": {"type": "kaggle", "path": "stefanoleone992/filmtv-movies-dataset/filmtv_movies.csv", "target": "avg_vote"},
     #"REG_PROFESSIONAL_COMPANY_EMPLOYEES_SIZE": {"type": "kaggle", "path": "peopledatalabssf/free-7-million-company-dataset/companies_sorted.csv", "target": "size_range"},
@@ -62,35 +63,80 @@ TEST_DATASETS = {
     "REG_FOOD_ZOMATO_RESTAURANTS": {"type": "kaggle", "path": "himanshupoddar/zomato-bangalore-restaurants/zomato.csv", "target": "rate"},
     "REG_SOCIAL_MOVIES_DATASET_REVENUE": {"type": "kaggle", "path": "rounakbanik/the-movies-dataset/movies_metadata.csv", "target": "revenue"},
     "REG_SPORTS_NBA_DRAFT_VALUE_OVER_REPLACEMENT": {"type": "kaggle", "path": "mattop/nba-draft-basketball-player-data-19892021/nbaplayersdraft.csv", "target": "vorp"},
-    "REG_SOCIAL_BOOKS_GOODREADS": {"type": "url", "url": "http://pages.cs.wisc.edu/~anhai/data/784_data/books2/csv_files/goodreads.csv", "target": "rating"},
-    "REG_SOCIAL_MOVIES_ROTTEN_TOMATOES": {"type": "url", "url": "http://pages.cs.wisc.edu/~anhai/data/784_data/movies1/csv_files/rotten_tomatoes.csv", "target": "rating"},
+    "REG_SOCIAL_BOOKS_GOODREADS": {"type": "url", "url": "http://pages.cs.wisc.edu/~anhai/data/784_data/books2/csv_files/goodreads.csv", "target": "Rating"},
+    "REG_SOCIAL_MOVIES_ROTTEN_TOMATOES": {"type": "url", "url": "http://pages.cs.wisc.edu/~anhai/data/784_data/movies1/csv_files/rotten_tomatoes.csv", "target": "Rating"},
     "REG_TRANSPORTATION_USED_CAR_SAUDI_ARABIA": {"type": "kaggle", "path": "turkibintalib/saudi-arabia-used-cars-dataset/UsedCarsSA_Clean_EN.csv", "target": "Price"},
     "REG_FOOD_RAMEN_RATINGS_2022": {"type": "kaggle", "path": "ankanhore545/top-ramen-ratings-2022/Top Ramen Ratings .csv", "target": "Stars"},
     "REG_PROFESSIONAL_SCIMAGOJR_ACADEMIC_IMPACT": {"type": "url", "url": "https://www.scimagojr.com/journalrank.php?out=xls", "sep": ";", "target": "SJR"},
     "REG_FOOD_CHOCOLATE_BAR_RATINGS": {"type": "kaggle", "path": "rtatman/chocolate-bar-ratings/flavors_of_cacao.csv", "target": "Rating"},
     "REG_CONSUMER_MERCARI_ONLINE_MARKETPLACE": {"type": "openml", "id": 46660, "target": "price"},
-    "REG_FOOD_WINE_POLISH_MARKET_PRICES": {"type": "kaggle", "path": "skamlo/wine-price-on-polish-market/wine.csv", "target": "price"},
-    "REG_SOCIAL_BOOK_READABILITY_CLEAR": {"type": "kaggle", "path": "verracodeguacas/clear-corpus/CLEAR.csv", "target": "BT_easiness"},
+    "REG_FOOD_WINE_POLISH_MARKET_PRICES": {"type": "kaggle", "path": "skamlo/wine-price-on-polish-market/wine.csv", "target": "Price"},
+    "REG_SOCIAL_BOOK_READABILITY_CLEAR": {"type": "kaggle", "path": "verracodeguacas/clear-corpus/CLEAR.csv", "target": "BT Easiness"},
     "REG_CONSUMER_JC_PENNEY_PRODUCT_PRICE": {"type": "openml", "id": 46661, "target": "sale_price"},
 }
 
 MAX_SAMPLES_TEST = 10000 # Limit test samples for speed
 
+def clean_target(y, is_cls):
+    if is_cls:
+        return y
+    
+    # For regression, try to convert to float
+    if pd.api.types.is_numeric_dtype(y.dtype):
+        return y
+    
+    # Convert to string and clean
+    y_str = y.astype(str)
+    # Remove currency symbols, commas, and other common non-numeric chars
+    # We keep digits, dots, and minus signs
+    y_clean = y_str.str.replace(r'[^\d.-]', '', regex=True)
+    
+    # Handle cases like "3.3 / 5" -> take the first part
+    y_clean = y_clean.str.split('/').str[0]
+    
+    # Convert to numeric, forcing errors to NaN
+    y_num = pd.to_numeric(y_clean, errors='coerce')
+    return y_num
+
 def download_dataset(name, config):
     print(f"Downloading {name}...")
     try:
         if config["type"] == "openml":
-            dataset = openml.datasets.get_dataset(config["id"], download_data=True)
-            # Use specified target if available, else default
-            target_col = config.get("target", dataset.default_target_attribute)
-            X, y, _, _ = dataset.get_data(target=target_col)
+            # Use fetch_openml which is more robust than openml-python
+            data = fetch_openml(data_id=config["id"], as_frame=True, parser='auto')
+            X = data.data
+            y = data.target
+            
+            target_col = config.get("target")
+            if target_col and target_col in X.columns:
+                # Sometimes target is in X, move it to y
+                y = X[target_col]
+                X = X.drop(columns=[target_col])
+            elif target_col and y.name != target_col:
+                # Try to find target in X if it's not the default one
+                found = False
+                for col in X.columns:
+                    if col.lower() == target_col.lower():
+                        y = X[col]
+                        X = X.drop(columns=[col])
+                        found = True
+                        break
+                if not found:
+                    print(f"Warning: Target {target_col} not found. Using default OpenML target: {y.name}")
+            
             return X, y
+            
         elif config["type"] == "kaggle":
             dataset_name, file = config["path"].rsplit('/', 1)
             dir_path = kagglehub.dataset_download(dataset_name)
             file_path = os.path.join(dir_path, file)
             sep = config.get("sep", ",")
-            df = pd.read_csv(file_path, sep=sep)
+            
+            # Handle potential encoding issues and bad lines
+            try:
+                df = pd.read_csv(file_path, sep=sep, on_bad_lines='skip', low_memory=False)
+            except UnicodeDecodeError:
+                df = pd.read_csv(file_path, sep=sep, on_bad_lines='skip', low_memory=False, encoding='latin1')
             
             target_col = config.get("target")
             if target_col not in df.columns:
@@ -112,10 +158,23 @@ def download_dataset(name, config):
             X = df.drop(columns=[target_col] + [c for c in drop_cols if c in df.columns])
             y = df[target_col]
             return X, y
+            
         elif config["type"] == "url":
             sep = config.get("sep", ",")
-            df = pd.read_csv(config["url"], sep=sep)
+            # Use requests with headers to avoid 403 Forbidden
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+            response = requests.get(config["url"], headers=headers)
+            response.raise_for_status()
+            
+            df = pd.read_csv(io.StringIO(response.text), sep=sep, on_bad_lines='skip')
             target_col = config.get("target")
+            
+            if target_col not in df.columns:
+                # Try case-insensitive
+                for col in df.columns:
+                    if col.lower() == target_col.lower():
+                        target_col = col
+                        break
             
             if target_col not in df.columns:
                 print(f"Warning: Target {target_col} not found in {name}. Using last column.")
@@ -136,6 +195,11 @@ def create_test_corpus(output_path="data/test_corpus_tabstar.h5"):
             X, y = download_dataset(ds_name, config)
             if X is None or y is None:
                 continue
+            
+            is_cls = ds_name.startswith("BIN") or ds_name.startswith("MUL")
+            
+            # Clean target (especially for regression)
+            y = clean_target(y, is_cls)
             
             # Basic cleaning: drop rows with NaN in target
             mask = y.notna()
